@@ -16,6 +16,7 @@
 package httpclient
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/version"
-	"crypto/tls"
 	"github.com/aws/amazon-ecs-agent/agent/utils/agent_tls"
 )
 
