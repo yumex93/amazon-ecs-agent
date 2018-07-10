@@ -1,4 +1,6 @@
-// Copyright 2014-2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// +build unit
+
+// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -45,6 +47,8 @@ const (
 	testContainerInstance      = "containerInstance"
 	rwTimeout                  = time.Second
 )
+
+var testCreds = credentials.NewStaticCredentials("test-id", "test-secret", "test-token")
 
 type mockStatsEngine struct{}
 
@@ -167,12 +171,12 @@ func TestPublishMetricsRequest(t *testing.T) {
 
 	cs := testCS(conn)
 	defer cs.Close()
-
 	err := cs.MakeRequest(&ecstcs.PublishMetricsRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
+
 func TestPublishMetricsOnceEmptyStatsError(t *testing.T) {
 	cs := clientServer{
 		statsEngine: &emptyStatsEngine{},
@@ -237,12 +241,11 @@ func TestPublishOnceNonIdleStatsEngine(t *testing.T) {
 }
 
 func testCS(conn *mock_wsconn.MockWebsocketConn) wsclient.ClientServer {
-	testCreds := credentials.AnonymousCredentials
 	cfg := &config.Config{
 		AWSRegion:          "us-east-1",
 		AcceptInsecureCert: true,
 	}
-	cs := New("localhost:443", cfg, testCreds, &mockStatsEngine{},
+	cs := New("https://aws.amazon.com/ecs", cfg, testCreds, &mockStatsEngine{},
 		testPublishMetricsInterval, rwTimeout, false).(*clientServer)
 	cs.SetConnection(conn)
 	return cs
@@ -309,10 +312,10 @@ func TestMetricsDisabled(t *testing.T) {
 	mockStatsEngine := mock_stats.NewMockEngine(ctrl)
 
 	cfg := config.DefaultConfig()
-	testCreds := credentials.AnonymousCredentials
 
 	cs := New("", &cfg, testCreds, mockStatsEngine, testPublishMetricsInterval, rwTimeout, true)
 	cs.SetConnection(conn)
+
 	metricsPublished := make(chan struct{})
 
 	// stats engine should only be called for getting health metrics
@@ -340,7 +343,6 @@ func TestCreatePublishHealthRequestsEmpty(t *testing.T) {
 	conn := mock_wsconn.NewMockWebsocketConn(ctrl)
 	mockStatsEngine := mock_stats.NewMockEngine(ctrl)
 	cfg := config.DefaultConfig()
-	testCreds := credentials.AnonymousCredentials
 
 	cs := New("", &cfg, testCreds, mockStatsEngine, testPublishMetricsInterval, rwTimeout, true)
 	cs.SetConnection(conn)
@@ -361,7 +363,6 @@ func TestCreatePublishHealthRequests(t *testing.T) {
 	conn := mock_wsconn.NewMockWebsocketConn(ctrl)
 	mockStatsEngine := mock_stats.NewMockEngine(ctrl)
 	cfg := config.DefaultConfig()
-	testCreds := credentials.AnonymousCredentials
 
 	cs := New("", &cfg, testCreds, mockStatsEngine, testPublishMetricsInterval, rwTimeout, true)
 	cs.SetConnection(conn)

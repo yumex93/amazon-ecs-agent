@@ -42,6 +42,7 @@ import (
 	"github.com/cihub/seelog"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
+	"github.com/aws/amazon-ecs-agent/agent/utils/agent_tls"
 )
 
 const (
@@ -132,7 +133,7 @@ type ClientServerImpl struct {
 }
 
 // Connect opens a connection to the backend and upgrades it to a websocket. Calls to
-// 'MakeRequest' can be made after calling this, but responss will not be
+// 'MakeRequest' can be made after calling this, but responses will not be
 // receivable until 'Serve' is also called.
 func (cs *ClientServerImpl) Connect() error {
 	seelog.Debugf("Establishing a Websocket connection to %s", cs.URL)
@@ -152,10 +153,14 @@ func (cs *ClientServerImpl) Connect() error {
 	request, _ := http.NewRequest("GET", parsedURL.String(), nil)
 
 	// Sign the request; we'll send its headers via the websocket client which includes the signature
-	utils.SignHTTPRequest(request, cs.AgentConfig.AWSRegion, ServiceName, cs.CredentialProvider, nil)
+	err = utils.SignHTTPRequest(request, cs.AgentConfig.AWSRegion, ServiceName, cs.CredentialProvider, nil)
+	if err != nil {
+		return err
+	}
 
 	timeoutDialer := &net.Dialer{Timeout: wsConnectTimeout}
 	tlsConfig := &tls.Config{ServerName: parsedURL.Host, InsecureSkipVerify: cs.AgentConfig.AcceptInsecureCert}
+	agent_tls.SetCipherCuites(tlsConfig)
 
 	// Ensure that NO_PROXY gets set
 	noProxy := os.Getenv("NO_PROXY")

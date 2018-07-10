@@ -42,6 +42,8 @@
     "aws/request",
     "aws/session",
     "aws/signer/v4",
+    "internal/sdkio",
+    "internal/sdkrand",
     "internal/shareddefaults",
     "private/model/api",
     "private/protocol",
@@ -57,8 +59,8 @@
     "service/iam",
     "service/sts"
   ]
-  revision = "decd990ddc5dcdf2f73309cbcab90d06b996ca28"
-  version = "v1.12.67"
+  revision = "4f5d298bd2dcb34b06d944594f458d1f77ac4d66"
+  version = "v1.13.42"
 
 [[projects]]
   name = "github.com/cihub/seelog"
@@ -142,17 +144,23 @@
     "pkg/jsonmessage",
     "pkg/longpath",
     "pkg/mount",
+    "pkg/plugins",
+    "pkg/plugins/transport",
     "pkg/pools",
     "pkg/stdcopy",
     "pkg/system",
     "pkg/term",
     "pkg/term/windows"
   ]
-  revision = "e4d0fe84f9ea88b0e0cfd847412c9f29442cc62d"
+  revision = "7270b01e5dd1fca3fd7fed0d6fb9d2769ec5f4ba"
 
 [[projects]]
   name = "github.com/docker/go-connections"
-  packages = ["nat"]
+  packages = [
+    "nat",
+    "sockets",
+    "tlsconfig"
+  ]
   revision = "3ede32e2033de7505e6500d6c868c2b9ed9f169d"
   version = "v0.3.0"
 
@@ -293,7 +301,8 @@
   packages = [
     "context",
     "html",
-    "html/atom"
+    "html/atom",
+    "proxy"
   ]
   revision = "a337091b0525af65de94df2eb7e98bd9962dcbe2"
 
@@ -326,6 +335,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a5f72ace73e7045edeb6973b3f13bbe178df1d00c646bcc37f9dff0a616ba370"
+  inputs-digest = "7d4776d227f68e077e3e1feefb8c5c1971762e5ffcafe6a932240571b1eee698"
   solver-name = "gps-cdcl"
   solver-version = 1
