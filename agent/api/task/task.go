@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -78,7 +79,7 @@ type TaskOverrides struct{}
 
 // Task is the internal representation of a task in the ECS agent
 type Task struct {
-	// Arn is the unique identifer for the task
+	// Arn is the unique identifier for the task
 	Arn string
 	// Overrides are the overrides applied to a task
 	Overrides TaskOverrides `json:"-"`
@@ -171,7 +172,7 @@ type Task struct {
 }
 
 // TaskFromACS translates ecsacs.Task to apitask.Task by first marshaling the received
-// ecsacs.Task to json and unmrashaling it as apitask.Task
+// ecsacs.Task to json and unmarshaling it as apitask.Task
 func TaskFromACS(acsTask *ecsacs.Task, envelope *ecsacs.PayloadMessage) (*Task, error) {
 	data, err := jsonutil.BuildJSON(acsTask)
 	if err != nil {
@@ -517,18 +518,21 @@ func (task *Task) addNetworkResourceProvisioningDependency(cfg *config.Config) {
 	if !task.isNetworkModeVPC() {
 		return
 	}
-	for _, container := range task.Containers {
-		if container.IsInternal() {
-			continue
-		}
-		container.BuildContainerDependency(PauseContainerName, apicontainerstatus.ContainerResourcesProvisioned, apicontainerstatus.ContainerPulled)
-	}
 	pauseContainer := apicontainer.NewContainerWithSteadyState(apicontainerstatus.ContainerResourcesProvisioned)
+	pauseContainer.TransitionDependenciesMap = make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet)
 	pauseContainer.Name = PauseContainerName
 	pauseContainer.Image = fmt.Sprintf("%s:%s", cfg.PauseContainerImageName, cfg.PauseContainerTag)
 	pauseContainer.Essential = true
 	pauseContainer.Type = apicontainer.ContainerCNIPause
 	task.Containers = append(task.Containers, pauseContainer)
+
+	for _, container := range task.Containers {
+		if container.IsInternal() {
+			continue
+		}
+		container.BuildContainerDependency(PauseContainerName, apicontainerstatus.ContainerResourcesProvisioned, apicontainerstatus.ContainerPulled)
+		pauseContainer.BuildContainerDependency(container.Name, apicontainerstatus.ContainerStopped, apicontainerstatus.ContainerStopped)
+	}
 }
 
 // ContainerByName returns the *Container for the given name
@@ -550,6 +554,27 @@ func (task *Task) HostVolumeByName(name string) (taskresourcevolume.Volume, bool
 		}
 	}
 	return nil, false
+}
+
+// UpdateMountPoints updates the mount points of volumes that were created
+// without specifying a host path.  This is used as part of the empty host
+// volume feature.
+func (task *Task) UpdateMountPoints(cont *apicontainer.Container, vols map[string]string) {
+	for _, mountPoint := range cont.MountPoints {
+		containerPath := getCanonicalPath(mountPoint.ContainerPath)
+		hostPath, ok := vols[containerPath]
+		if !ok {
+			// /path/ -> /path or \path\ -> \path
+			hostPath, ok = vols[strings.TrimRight(containerPath, string(filepath.Separator))]
+		}
+		if ok {
+			if hostVolume, exists := task.HostVolumeByName(mountPoint.SourceVolume); exists {
+				if empty, ok := hostVolume.(*taskresourcevolume.LocalDockerVolume); ok {
+					empty.HostPath = hostPath
+				}
+			}
+		}
+	}
 }
 
 // updateTaskKnownStatus updates the given task's status based on its container's status.

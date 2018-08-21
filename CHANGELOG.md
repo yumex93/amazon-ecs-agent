@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.21.0-dev
+* Bug - Fixed a bug where unrecognized task cannot be stopped [#1467](https://github.com/aws/amazon-ecs-agent/pull/1467)
+
+## 1.20.1
+* Bug - Fixed a bug where the agent couldn't be upgraded if there are tasks that
+  use volumes in the task definition on the instance
+* Bug - Fixed a bug where volumes driver may not work with mountpoint
+
 ## 1.20.0
 * Feature - Add support for Docker volume drivers, third party drivers are only supported on linux
 * Enhancement - Replace the empty container with Docker local volume
