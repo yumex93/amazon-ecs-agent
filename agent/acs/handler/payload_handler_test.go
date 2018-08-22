@@ -15,16 +15,18 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
-
-	"context"
 
 	"github.com/aws/amazon-ecs-agent/agent/acs/model/ecsacs"
 	"github.com/aws/amazon-ecs-agent/agent/api"
 	"github.com/aws/amazon-ecs-agent/agent/api/mocks"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
+	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
 	"github.com/aws/amazon-ecs-agent/agent/credentials"
 	"github.com/aws/amazon-ecs-agent/agent/engine/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/eventhandler"
@@ -324,11 +326,11 @@ func TestAddPayloadTaskAddsNonStoppedTasksAfterStoppedTasks(t *testing.T) {
 	// Verify if stopped task is added before running task
 	firstTaskAdded := tasksAddedToEngine[0]
 	assert.Equal(t, firstTaskAdded.Arn, stoppedTaskArn)
-	assert.Equal(t, firstTaskAdded.GetDesiredStatus(), apitask.TaskStopped)
+	assert.Equal(t, firstTaskAdded.GetDesiredStatus(), apitaskstatus.TaskStopped)
 
 	secondTaskAdded := tasksAddedToEngine[1]
 	assert.Equal(t, secondTaskAdded.Arn, runningTaskArn)
-	assert.Equal(t, secondTaskAdded.GetDesiredStatus(), apitask.TaskRunning)
+	assert.Equal(t, secondTaskAdded.GetDesiredStatus(), apitaskstatus.TaskRunning)
 }
 
 // TestPayloadBufferHandler tests if the async payloadBufferHandler routine
@@ -752,4 +754,31 @@ func TestPayloadHandlerAddedASMAuthData(t *testing.T) {
 	assert.Equal(t, aws.StringValue(expected.Type), actual.Type)
 	assert.Equal(t, aws.StringValue(expected.AsmAuthData.Region), actual.ASMAuthData.Region)
 	assert.Equal(t, aws.StringValue(expected.AsmAuthData.CredentialsParameter), actual.ASMAuthData.CredentialsParameter)
+}
+
+func TestHandleUnrecognizedTask(t *testing.T) {
+	tester := setup(t)
+	defer tester.ctrl.Finish()
+
+	arn := "arn"
+	ecsacsTask := &ecsacs.Task{Arn: &arn}
+	payloadMessage := &ecsacs.PayloadMessage{
+		Tasks:     []*ecsacs.Task{ecsacsTask},
+		MessageId: aws.String(payloadMessageId),
+	}
+
+	mockECSACSClient := mock_api.NewMockECSClient(tester.ctrl)
+	taskHandler := eventhandler.NewTaskHandler(tester.ctx, tester.payloadHandler.saver, nil, mockECSACSClient)
+	tester.payloadHandler.taskHandler = taskHandler
+
+	wait := &sync.WaitGroup{}
+	wait.Add(1)
+
+	mockECSACSClient.EXPECT().SubmitTaskStateChange(gomock.Any()).Do(func(change api.TaskStateChange) {
+		assert.NotNil(t, change.Task)
+		wait.Done()
+	})
+
+	tester.payloadHandler.handleUnrecognizedTask(ecsacsTask, errors.New("test error"), payloadMessage)
+	wait.Wait()
 }

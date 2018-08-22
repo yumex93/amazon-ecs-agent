@@ -24,6 +24,7 @@ import (
 	time "time"
 
 	container "github.com/aws/amazon-ecs-agent/agent/api/container"
+	status "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	dockerclient "github.com/aws/amazon-ecs-agent/agent/dockerclient"
 	dockerapi "github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	go_dockerclient "github.com/fsouza/go-dockerclient"
@@ -104,9 +105,9 @@ func (mr *MockDockerClientMockRecorder) CreateVolume(arg0, arg1, arg2, arg3, arg
 }
 
 // DescribeContainer mocks base method
-func (m *MockDockerClient) DescribeContainer(arg0 context.Context, arg1 string) (container.ContainerStatus, dockerapi.DockerContainerMetadata) {
+func (m *MockDockerClient) DescribeContainer(arg0 context.Context, arg1 string) (status.ContainerStatus, dockerapi.DockerContainerMetadata) {
 	ret := m.ctrl.Call(m, "DescribeContainer", arg0, arg1)
-	ret0, _ := ret[0].(container.ContainerStatus)
+	ret0, _ := ret[0].(status.ContainerStatus)
 	ret1, _ := ret[1].(dockerapi.DockerContainerMetadata)
 	return ret0, ret1
 }
@@ -114,18 +115,6 @@ func (m *MockDockerClient) DescribeContainer(arg0 context.Context, arg1 string) 
 // DescribeContainer indicates an expected call of DescribeContainer
 func (mr *MockDockerClientMockRecorder) DescribeContainer(arg0, arg1 interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DescribeContainer", reflect.TypeOf((*MockDockerClient)(nil).DescribeContainer), arg0, arg1)
-}
-
-// ImportLocalEmptyVolumeImage mocks base method
-func (m *MockDockerClient) ImportLocalEmptyVolumeImage() dockerapi.DockerContainerMetadata {
-	ret := m.ctrl.Call(m, "ImportLocalEmptyVolumeImage")
-	ret0, _ := ret[0].(dockerapi.DockerContainerMetadata)
-	return ret0
-}
-
-// ImportLocalEmptyVolumeImage indicates an expected call of ImportLocalEmptyVolumeImage
-func (mr *MockDockerClientMockRecorder) ImportLocalEmptyVolumeImage() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImportLocalEmptyVolumeImage", reflect.TypeOf((*MockDockerClient)(nil).ImportLocalEmptyVolumeImage))
 }
 
 // InspectContainer mocks base method

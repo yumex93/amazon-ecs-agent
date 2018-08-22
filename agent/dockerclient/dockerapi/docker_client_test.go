@@ -27,6 +27,7 @@ import (
 	"time"
 
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
+	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	apierrors "github.com/aws/amazon-ecs-agent/agent/api/errors"
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/credentials"
@@ -36,7 +37,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
 	"github.com/aws/amazon-ecs-agent/agent/ecr/mocks"
 	ecrapi "github.com/aws/amazon-ecs-agent/agent/ecr/model/ecr"
-	"github.com/aws/amazon-ecs-agent/agent/emptyvolume"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime/mocks"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -325,39 +325,6 @@ func TestGetRepositoryWithUntaggedImage(t *testing.T) {
 	assert.Equal(t, image+":"+dockerDefaultTag, repository)
 }
 
-func TestImportLocalEmptyVolumeImage(t *testing.T) {
-	mockDocker, client, testTime, _, _, done := dockerClientSetup(t)
-	defer done()
-
-	// The special emptyvolume image leads to a create, not pull
-	testTime.EXPECT().After(gomock.Any()).AnyTimes()
-	gomock.InOrder(
-		mockDocker.EXPECT().InspectImage(emptyvolume.Image+":"+emptyvolume.Tag).Return(nil, errors.New("Does not exist")),
-		mockDocker.EXPECT().ImportImage(gomock.Any()).Do(func(x interface{}) {
-			req := x.(docker.ImportImageOptions)
-			require.Equal(t, emptyvolume.Image, req.Repository, "expected empty volume repository")
-			require.Equal(t, emptyvolume.Tag, req.Tag, "expected empty volume tag")
-		}),
-	)
-
-	metadata := client.ImportLocalEmptyVolumeImage()
-	assert.NoError(t, metadata.Error, "Expected import to succeed")
-}
-
-func TestImportLocalEmptyVolumeImageExisting(t *testing.T) {
-	mockDocker, client, testTime, _, _, done := dockerClientSetup(t)
-	defer done()
-
-	// The special emptyvolume image leads to a create only if it doesn't exist
-	testTime.EXPECT().After(gomock.Any()).AnyTimes()
-	gomock.InOrder(
-		mockDocker.EXPECT().InspectImage(emptyvolume.Image+":"+emptyvolume.Tag).Return(&docker.Image{}, nil),
-	)
-
-	metadata := client.ImportLocalEmptyVolumeImage()
-	assert.NoError(t, metadata.Error, "Expected import to succeed")
-}
-
 func TestCreateContainerTimeout(t *testing.T) {
 	mockDocker, client, _, _, _, done := dockerClientSetup(t)
 	defer done()
@@ -376,33 +343,6 @@ func TestCreateContainerTimeout(t *testing.T) {
 	wait.Done()
 }
 
-func TestCreateContainerInspectTimeout(t *testing.T) {
-	mockDocker, client, _, _, _, done := dockerClientSetup(t)
-	defer done()
-
-	config := docker.CreateContainerOptions{Config: &docker.Config{Memory: 100}, Name: "containerName"}
-	gomock.InOrder(
-		mockDocker.EXPECT().CreateContainer(gomock.Any()).Do(func(opts docker.CreateContainerOptions) {
-			if !reflect.DeepEqual(opts.Config, config.Config) {
-				t.Errorf("Mismatch in create container config, %v != %v", opts.Config, config.Config)
-			}
-			if opts.Name != config.Name {
-				t.Errorf("Mismatch in create container options, %s != %s", opts.Name, config.Name)
-			}
-		}).Return(&docker.Container{ID: "id"}, nil),
-		mockDocker.EXPECT().InspectContainerWithContext("id", gomock.Any()).Return(nil, &DockerTimeoutError{}),
-	)
-	ctx, cancel := context.WithCancel(context.TODO())
-	defer cancel()
-	metadata := client.CreateContainer(ctx, config.Config, nil, config.Name, 1*time.Second)
-	if metadata.DockerID != "id" {
-		t.Error("Expected ID to be set even if inspect failed; was " + metadata.DockerID)
-	}
-	if metadata.Error == nil {
-		t.Error("Expected error for inspect timeout")
-	}
-}
-
 func TestCreateContainer(t *testing.T) {
 	mockDocker, client, _, _, _, done := dockerClientSetup(t)
 	defer done()
@@ -417,7 +357,6 @@ func TestCreateContainer(t *testing.T) {
 				t.Errorf("Mismatch in create container options, %s != %s", opts.Name, config.Name)
 			}
 		}).Return(&docker.Container{ID: "id"}, nil),
-		mockDocker.EXPECT().InspectContainerWithContext("id", gomock.Any()).Return(&docker.Container{ID: "id"}, nil),
 	)
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
@@ -577,19 +516,13 @@ func TestContainerEvents(t *testing.T) {
 
 	dockerEvents, err := client.ContainerEvents(context.TODO())
 	require.NoError(t, err, "Could not get container events")
-
-	mockDocker.EXPECT().InspectContainerWithContext("containerId", gomock.Any()).Return(
-		&docker.Container{
-			ID: "containerId",
-		},
-		nil)
 	go func() {
 		events <- &docker.APIEvents{Type: "container", ID: "containerId", Status: "create"}
 	}()
 
 	event := <-dockerEvents
 	assert.Equal(t, event.DockerID, "containerId", "Wrong docker id")
-	assert.Equal(t, event.Status, apicontainer.ContainerCreated, "Wrong status")
+	assert.Equal(t, event.Status, apicontainerstatus.ContainerCreated, "Wrong status")
 
 	container := &docker.Container{
 		ID: "cid2",
@@ -606,7 +539,7 @@ func TestContainerEvents(t *testing.T) {
 	}()
 	event = <-dockerEvents
 	assert.Equal(t, event.DockerID, "cid2", "Wrong docker id")
-	assert.Equal(t, event.Status, apicontainer.ContainerRunning, "Wrong status")
+	assert.Equal(t, event.Status, apicontainerstatus.ContainerRunning, "Wrong status")
 	assert.Equal(t, event.PortBindings[0].ContainerPort, uint16(80), "Incorrect port bindings")
 	assert.Equal(t, event.PortBindings[0].HostPort, uint16(9001), "Incorrect port bindings")
 	assert.Equal(t, event.Volumes["/host/path"], "/container/path", "Incorrect volume mapping")
@@ -629,7 +562,7 @@ func TestContainerEvents(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		anEvent := <-dockerEvents
 		assert.True(t, anEvent.DockerID == "cid30" || anEvent.DockerID == "cid31", "Wrong container id: "+anEvent.DockerID)
-		assert.Equal(t, anEvent.Status, apicontainer.ContainerStopped, "Should be stopped")
+		assert.Equal(t, anEvent.Status, apicontainerstatus.ContainerStopped, "Should be stopped")
 		assert.Equal(t, aws.IntValue(anEvent.ExitCode), 20, "Incorrect exit code")
 	}
 
@@ -662,7 +595,7 @@ func TestContainerEvents(t *testing.T) {
 
 	anEvent := <-dockerEvents
 	assert.Equal(t, anEvent.Type, apicontainer.ContainerHealthEvent, "unexpected docker events type received")
-	assert.Equal(t, anEvent.Health.Status, apicontainer.ContainerHealthy)
+	assert.Equal(t, anEvent.Health.Status, apicontainerstatus.ContainerHealthy)
 	assert.Equal(t, anEvent.Health.Output, "health output")
 
 	// Verify the following events do not translate into our event stream
@@ -1336,7 +1269,7 @@ func TestMetadataFromContainerHealthCheckWithNoLogs(t *testing.T) {
 		}}
 
 	metadata := MetadataFromContainer(dockerContainer)
-	assert.Equal(t, apicontainer.ContainerUnhealthy, metadata.Health.Status)
+	assert.Equal(t, apicontainerstatus.ContainerUnhealthy, metadata.Health.Status)
 }
 
 func TestCreateVolumeTimeout(t *testing.T) {

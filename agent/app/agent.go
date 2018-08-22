@@ -1,4 +1,4 @@
-// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -27,6 +27,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/containermetadata"
 	"github.com/aws/amazon-ecs-agent/agent/credentials"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/clientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
@@ -38,7 +39,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/eventhandler"
 	"github.com/aws/amazon-ecs-agent/agent/eventstream"
 	"github.com/aws/amazon-ecs-agent/agent/handlers"
-	"github.com/aws/amazon-ecs-agent/agent/handlers/taskmetadata"
 	"github.com/aws/amazon-ecs-agent/agent/sighandlers"
 	"github.com/aws/amazon-ecs-agent/agent/sighandlers/exitcodes"
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
@@ -201,9 +201,7 @@ func (agent *ecsAgent) start() int {
 	imageManager := engine.NewImageManager(agent.cfg, agent.dockerClient, state)
 	client := ecsclient.NewECSClient(agent.credentialProvider, agent.cfg, agent.ec2MetadataClient)
 
-	if agent.cfg.TaskCPUMemLimit.Enabled() {
-		agent.initializeResourceFields()
-	}
+	agent.initializeResourceFields(credentialsManager)
 	return agent.doStart(containerChangeEventStream, credentialsManager, state, imageManager, client)
 }
 
@@ -215,6 +213,11 @@ func (agent *ecsAgent) doStart(containerChangeEventStream *eventstream.EventStre
 	state dockerstate.TaskEngineState,
 	imageManager engine.ImageManager,
 	client api.ECSClient) int {
+
+	// check docker version >= 1.9.0, exit agent if older
+	if exitcode, ok := agent.verifyRequiredDockerVersion(); !ok {
+		return exitcode
+	}
 
 	// Conditionally create '/ecs' cgroup root
 	if agent.cfg.TaskCPUMemLimit.Enabled() {
@@ -524,12 +527,12 @@ func (agent *ecsAgent) startAsyncRoutines(
 	go agent.terminationHandler(stateManager, taskEngine)
 
 	// Agent introspection api
-	go handlers.ServeHttp(&agent.containerInstanceARN, taskEngine, agent.cfg)
+	go handlers.V1ServeHTTP(&agent.containerInstanceARN, taskEngine, agent.cfg)
 
 	statsEngine := stats.NewDockerStatsEngine(agent.cfg, agent.dockerClient, containerChangeEventStream)
 
 	// Start serving the endpoint to fetch IAM Role credentials and other task metadata
-	go taskmetadata.ServeHTTP(credentialsManager, state, agent.containerInstanceARN, agent.cfg, statsEngine)
+	go handlers.V2ServeHTTP(credentialsManager, state, agent.containerInstanceARN, agent.cfg, statsEngine)
 
 	// Start sending events to the backend
 	go eventhandler.HandleEngineEvents(taskEngine, client, taskHandler)
@@ -581,4 +584,27 @@ func (agent *ecsAgent) startACSSession(
 	}
 	seelog.Critical("ACS Session handler should never exit")
 	return exitcodes.ExitError
+}
+
+// validateRequiredVersion validates docker version.
+// Minimum docker version supported is 1.9.0, maps to api version 1.21
+// see https://docs.docker.com/develop/sdk/#api-version-matrix
+func (agent *ecsAgent) verifyRequiredDockerVersion() (int, bool) {
+	supportedVersions := agent.dockerClient.SupportedVersions()
+	if len(supportedVersions) == 0 {
+		seelog.Critical("Could not get supported docker versions.")
+		return exitcodes.ExitError, false
+	}
+
+	// if api version 1.21 is supported, it means docker version is at least 1.9.0
+	for _, version := range supportedVersions {
+		if version == dockerclient.Version_1_21 {
+			return -1, true
+		}
+	}
+
+	// api 1.21 is not supported, docker version is older than 1.9.0
+	seelog.Criticalf("Required minimum docker API verion %s is not supported",
+		dockerclient.Version_1_21)
+	return exitcodes.ExitTerminal, false
 }

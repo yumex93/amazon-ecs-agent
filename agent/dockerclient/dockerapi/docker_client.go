@@ -14,7 +14,6 @@
 package dockerapi
 
 import (
-	"archive/tar"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
+	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	apierrors "github.com/aws/amazon-ecs-agent/agent/api/errors"
 	"github.com/aws/amazon-ecs-agent/agent/async"
 	"github.com/aws/amazon-ecs-agent/agent/config"
@@ -33,7 +33,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerauth"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockeriface"
 	"github.com/aws/amazon-ecs-agent/agent/ecr"
-	"github.com/aws/amazon-ecs-agent/agent/emptyvolume"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
 
@@ -130,9 +129,6 @@ type DockerClient interface {
 	// PullImage pulls an image. authData should contain authentication data provided by the ECS backend.
 	PullImage(image string, authData *apicontainer.RegistryAuthenticationData) DockerContainerMetadata
 
-	// ImportLocalEmptyVolumeImage imports a locally-generated empty-volume image for supported platforms.
-	ImportLocalEmptyVolumeImage() DockerContainerMetadata
-
 	// CreateContainer creates a container with the provided docker.Config, docker.HostConfig, and name. A timeout value
 	// and a context should be provided for the request.
 	CreateContainer(context.Context, *docker.Config, *docker.HostConfig, string, time.Duration) DockerContainerMetadata
@@ -147,7 +143,7 @@ type DockerClient interface {
 
 	// DescribeContainer returns status information about the specified container. A context should be provided
 	// for the request
-	DescribeContainer(context.Context, string) (apicontainer.ContainerStatus, DockerContainerMetadata)
+	DescribeContainer(context.Context, string) (apicontainerstatus.ContainerStatus, DockerContainerMetadata)
 
 	// RemoveContainer removes a container (typically the rootfs, logs, and associated metadata) identified by the name.
 	// A timeout value and a context should be provided for the request.
@@ -351,7 +347,7 @@ func (dg *dockerGoClient) pullImage(image string, authData *apicontainer.Registr
 	}
 	timeout := dg.time().After(dockerPullBeginTimeout)
 	// pullBegan is a channel indicating that we have seen at least one line of data on the 'OutputStream' above.
-	// It is here to guard against a bug wherin docker never writes anything to that channel and hangs in pulling forever.
+	// It is here to guard against a bug wherein Docker never writes anything to that channel and hangs in pulling forever.
 	pullBegan := make(chan bool, 1)
 
 	go dg.filterPullDebugOutput(pullDebugOut, pullBegan, image)
@@ -428,62 +424,6 @@ func getRepository(image string) string {
 	return repository
 }
 
-// ImportLocalEmptyVolumeImage imports a locally-generated empty-volume image for supported platforms.
-func (dg *dockerGoClient) ImportLocalEmptyVolumeImage() DockerContainerMetadata {
-	timeout := dg.time().After(pullImageTimeout)
-
-	response := make(chan DockerContainerMetadata, 1)
-	go func() {
-		err := dg.createScratchImageIfNotExists()
-		var wrapped apierrors.NamedError
-		if err != nil {
-			wrapped = CreateEmptyVolumeError{err}
-		}
-		response <- DockerContainerMetadata{Error: wrapped}
-	}()
-	select {
-	case resp := <-response:
-		return resp
-	case <-timeout:
-		return DockerContainerMetadata{Error: &DockerTimeoutError{pullImageTimeout, "pulled"}}
-	}
-}
-
-func (dg *dockerGoClient) createScratchImageIfNotExists() error {
-	client, err := dg.dockerClient()
-	if err != nil {
-		return err
-	}
-
-	scratchCreateLock.Lock()
-	defer scratchCreateLock.Unlock()
-
-	_, err = client.InspectImage(emptyvolume.Image + ":" + emptyvolume.Tag)
-	if err == nil {
-		seelog.Debug("DockerGoClient: empty volume image is already present, skipping import")
-		// Already exists; assume that it's okay to use it
-		return nil
-	}
-
-	reader, writer := io.Pipe()
-
-	emptytarball := tar.NewWriter(writer)
-	go func() {
-		emptytarball.Close()
-		writer.Close()
-	}()
-
-	seelog.Debug("DockerGoClient: importing empty volume image")
-	// Create it from an empty tarball
-	err = client.ImportImage(docker.ImportImageOptions{
-		Repository:  emptyvolume.Image,
-		Tag:         emptyvolume.Tag,
-		Source:      "-",
-		InputStream: reader,
-	})
-	return err
-}
-
 func (dg *dockerGoClient) InspectImage(image string) (*docker.Image, error) {
 	client, err := dg.dockerClient()
 	if err != nil {
@@ -493,15 +433,26 @@ func (dg *dockerGoClient) InspectImage(image string) (*docker.Image, error) {
 }
 
 func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.RegistryAuthenticationData) (docker.AuthConfiguration, error) {
-	if authData == nil || authData.Type != "ecr" {
+
+	if authData == nil {
 		return dg.auth.GetAuthconfig(image, nil)
 	}
-	provider := dockerauth.NewECRAuthProvider(dg.ecrClientFactory, dg.ecrTokenCache)
-	authConfig, err := provider.GetAuthconfig(image, authData)
-	if err != nil {
-		return authConfig, CannotPullECRContainerError{err}
+
+	switch authData.Type {
+	case apicontainer.AuthTypeECR:
+		provider := dockerauth.NewECRAuthProvider(dg.ecrClientFactory, dg.ecrTokenCache)
+		authConfig, err := provider.GetAuthconfig(image, authData)
+		if err != nil {
+			return authConfig, CannotPullECRContainerError{err}
+		}
+		return authConfig, nil
+
+	case apicontainer.AuthTypeASM:
+		return authData.ASMAuthData.GetDockerAuthConfig(), nil
+
+	default:
+		return dg.auth.GetAuthconfig(image, nil)
 	}
-	return authConfig, nil
 }
 
 func (dg *dockerGoClient) CreateContainer(ctx context.Context,
@@ -554,7 +505,7 @@ func (dg *dockerGoClient) createContainer(ctx context.Context,
 		return DockerContainerMetadata{Error: CannotCreateContainerError{err}}
 	}
 
-	return dg.containerMetadata(ctx, dockerContainer.ID)
+	return MetadataFromContainer(dockerContainer)
 }
 
 func (dg *dockerGoClient) StartContainer(ctx context.Context, id string, timeout time.Duration) DockerContainerMetadata {
@@ -596,26 +547,26 @@ func (dg *dockerGoClient) startContainer(ctx context.Context, id string) DockerC
 
 // DockerStateToState converts the container status from docker to status recognized by the agent
 // Ref: https://github.com/fsouza/go-dockerclient/blob/fd53184a1439b6d7b82ca54c1cd9adac9a5278f2/container.go#L133
-func DockerStateToState(state docker.State) apicontainer.ContainerStatus {
+func DockerStateToState(state docker.State) apicontainerstatus.ContainerStatus {
 	if state.Running {
-		return apicontainer.ContainerRunning
+		return apicontainerstatus.ContainerRunning
 	}
 
 	if state.Dead {
-		return apicontainer.ContainerStopped
+		return apicontainerstatus.ContainerStopped
 	}
 
 	if state.StartedAt.IsZero() && state.Error == "" {
-		return apicontainer.ContainerCreated
+		return apicontainerstatus.ContainerCreated
 	}
 
-	return apicontainer.ContainerStopped
+	return apicontainerstatus.ContainerStopped
 }
 
-func (dg *dockerGoClient) DescribeContainer(ctx context.Context, dockerID string) (apicontainer.ContainerStatus, DockerContainerMetadata) {
+func (dg *dockerGoClient) DescribeContainer(ctx context.Context, dockerID string) (apicontainerstatus.ContainerStatus, DockerContainerMetadata) {
 	dockerContainer, err := dg.InspectContainer(ctx, dockerID, InspectContainerTimeout)
 	if err != nil {
-		return apicontainer.ContainerStatusNone, DockerContainerMetadata{Error: CannotDescribeContainerError{err}}
+		return apicontainerstatus.ContainerStatusNone, DockerContainerMetadata{Error: CannotDescribeContainerError{err}}
 	}
 	return DockerStateToState(dockerContainer.State), MetadataFromContainer(dockerContainer)
 }
@@ -816,9 +767,9 @@ func getMetadataHealthCheck(dockerContainer *docker.Container) apicontainer.Heal
 
 	switch dockerContainer.State.Health.Status {
 	case healthCheckHealthy:
-		health.Status = apicontainer.ContainerHealthy
+		health.Status = apicontainerstatus.ContainerHealthy
 	case healthCheckUnhealthy:
-		health.Status = apicontainer.ContainerUnhealthy
+		health.Status = apicontainerstatus.ContainerUnhealthy
 		if logLength == 0 {
 			seelog.Warn("DockerGoClient: no container healthcheck data returned by Docker")
 			break
@@ -867,23 +818,25 @@ func (dg *dockerGoClient) handleContainerEvents(ctx context.Context,
 		containerID := event.ID
 		seelog.Debugf("DockerGoClient: got event from docker daemon: %v", event)
 
-		var status apicontainer.ContainerStatus
+		var status apicontainerstatus.ContainerStatus
 		eventType := apicontainer.ContainerStatusEvent
 		switch event.Status {
 		case "create":
-			status = apicontainer.ContainerCreated
-			// TODO no need to inspect containers here.
-			// There's no need to inspect containers after they are created when we
-			// adopt Docker's volume APIs. Today, that's the only information we need
-			// from the `inspect` API. Once we start injecting that ourselves,
-			// there's no need to `inspect` containers on `Create` anymore. This will
-			// save us a lot of `inspect` calls in the future.
+			status = apicontainerstatus.ContainerCreated
+			changedContainers <- DockerContainerChangeEvent{
+				Status: status,
+				Type:   eventType,
+				DockerContainerMetadata: DockerContainerMetadata{
+					DockerID: containerID,
+				},
+			}
+			continue
 		case "start":
-			status = apicontainer.ContainerRunning
+			status = apicontainerstatus.ContainerRunning
 		case "stop":
 			fallthrough
 		case "die":
-			status = apicontainer.ContainerStopped
+			status = apicontainerstatus.ContainerStopped
 		case "oom":
 			containerInfo := event.ID
 			// events only contain the container's name in newer Docker API
