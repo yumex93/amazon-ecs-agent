@@ -1,4 +1,4 @@
-// +build !windows,!integration
+// +build !windows,unit
 
 // Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
@@ -16,16 +16,8 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/aws/amazon-ecs-agent/agent/api"
-	"github.com/aws/amazon-ecs-agent/agent/config"
-	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
-	"github.com/aws/amazon-ecs-agent/agent/emptyvolume"
-	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate/mocks"
-	"github.com/aws/amazon-ecs-agent/agent/resources/mock_resources"
-	"github.com/aws/amazon-ecs-agent/agent/statemanager/mocks"
 	"github.com/golang/mock/gomock"
 
 	"github.com/stretchr/testify/assert"
@@ -39,63 +31,6 @@ const (
 	// on linux. Docker client's Version() call needs to be mocked
 	dockerVersionCheckDuringInit = true
 )
-
-func TestPullEmptyVolumeImage(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.TODO())
-	defer cancel()
-	ctrl, client, _, privateTaskEngine, _, _, _ := mocks(t, ctx, &config.Config{})
-	defer ctrl.Finish()
-	taskEngine, _ := privateTaskEngine.(*DockerTaskEngine)
-	saver := mock_statemanager.NewMockStateManager(ctrl)
-	taskEngine.SetSaver(saver)
-
-	imageName := "image"
-	container := &api.Container{
-		Type:  api.ContainerEmptyHostVolume,
-		Image: imageName,
-	}
-	task := &api.Task{
-		Containers: []*api.Container{container},
-	}
-
-	assert.True(t, emptyvolume.LocalImage, "empty volume image is local")
-	client.EXPECT().ImportLocalEmptyVolumeImage()
-
-	metadata := taskEngine.pullContainer(task, container)
-	assert.Equal(t, dockerapi.DockerContainerMetadata{}, metadata, "expected empty metadata")
-}
-
-func TestDeleteTask(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	task := &api.Task{
-		ENI: &api.ENI{
-			MacAddress: mac,
-		},
-	}
-
-	cfg := &defaultConfig
-	cfg.TaskCPUMemLimit = config.ExplicitlyEnabled
-	mockState := mock_dockerstate.NewMockTaskEngineState(ctrl)
-	mockSaver := mock_statemanager.NewMockStateManager(ctrl)
-	mockResource := mock_resources.NewMockResource(ctrl)
-	taskEngine := &DockerTaskEngine{
-		state:    mockState,
-		saver:    mockSaver,
-		cfg:      &defaultConfig,
-		resource: mockResource,
-	}
-
-	gomock.InOrder(
-		mockResource.EXPECT().Cleanup(task).Return(errors.New("error")),
-		mockState.EXPECT().RemoveTask(task),
-		mockState.EXPECT().RemoveENIAttachment(mac),
-		mockSaver.EXPECT().Save(),
-	)
-
-	taskEngine.deleteTask(task)
-}
 
 func TestEngineDisableConcurrentPull(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
