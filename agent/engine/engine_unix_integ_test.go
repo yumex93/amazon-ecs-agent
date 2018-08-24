@@ -85,7 +85,7 @@ func createTestHealthCheckTask(arn string) *apitask.Task {
 	return testTask
 }
 
-func createVolumeTask(scope, arn, volume string, provisioned bool) (*apitask.Task, string, error) {
+func createVolumeTask(scope, arn, volume string, autoprovision bool) (*apitask.Task, string, error) {
 	tmpDirectory, err := ioutil.TempDir("", "ecs_test")
 	if err != nil {
 		return nil, "", err
@@ -96,19 +96,24 @@ func createVolumeTask(scope, arn, volume string, provisioned bool) (*apitask.Tas
 	}
 
 	testTask := createTestTask(arn)
+
+	volumeConfig := &taskresourcevolume.DockerVolumeConfig{
+		Scope:  scope,
+		Driver: "local",
+		DriverOpts: map[string]string{
+			"device": tmpDirectory,
+			"o":      "bind",
+		},
+	}
+	if scope == "shared" {
+		volumeConfig.Autoprovision = autoprovision
+	}
+
 	testTask.Volumes = []apitask.TaskVolume{
 		{
-			Type: "docker",
-			Name: volume,
-			Volume: &taskresourcevolume.DockerVolumeConfig{
-				Scope:         scope,
-				Autoprovision: provisioned,
-				Driver:        "local",
-				DriverOpts: map[string]string{
-					"device": tmpDirectory,
-					"o":      "bind",
-				},
-			},
+			Type:   "docker",
+			Name:   volume,
+			Volume: volumeConfig,
 		},
 	}
 
@@ -760,6 +765,7 @@ check_events:
 	}
 }
 
+// TestDockerStopTimeout tests the container was killed after ECS_CONTAINER_STOP_TIMEOUT
 func TestDockerStopTimeout(t *testing.T) {
 	os.Setenv("ECS_CONTAINER_STOP_TIMEOUT", testDockerStopTimeout.String())
 	defer os.Unsetenv("ECS_CONTAINER_STOP_TIMEOUT")
@@ -773,19 +779,19 @@ func TestDockerStopTimeout(t *testing.T) {
 		t.Errorf("Expect the docker stop timeout read from environment variable when ECS_CONTAINER_STOP_TIMEOUT is set, %v", dockerTaskEngine.cfg.DockerStopTimeout)
 	}
 	testTask := createTestTask("TestDockerStopTimeout")
-	testTask.Containers = append(testTask.Containers, createTestContainer())
-	testTask.Containers[0].Command = []string{"sh", "-c", "while true; do echo `date +%T`; sleep 1s; done;"}
+	testTask.Containers[0].Command = []string{"sh", "-c", "trap 'echo hello' SIGTERM; while true; do echo `date +%T`; sleep 1s; done;"}
 	testTask.Containers[0].Image = testBusyboxImage
 	testTask.Containers[0].Name = "test-docker-timeout"
 
 	go dockerTaskEngine.AddTask(testTask)
 
 	verifyContainerRunningStateChange(t, taskEngine)
+	verifyTaskRunningStateChange(t, taskEngine)
 
 	startTime := ttime.Now()
 	dockerTaskEngine.stopContainer(testTask, testTask.Containers[0])
 
-	verifyContainerRunningStateChange(t, taskEngine)
+	verifyContainerStoppedStateChange(t, taskEngine)
 
 	if ttime.Since(startTime) < testDockerStopTimeout {
 		t.Errorf("Container stopped before the timeout: %v", ttime.Since(startTime))
@@ -850,7 +856,7 @@ func TestTaskLevelVolume(t *testing.T) {
 	defer done()
 	stateChangeEvents := taskEngine.StateChangeEvents()
 
-	testTask, tmpDirectory, err := createVolumeTask("task", "TestTaskLevelVolume", "TestTaskLevelVolume", false)
+	testTask, tmpDirectory, err := createVolumeTask("task", "TestTaskLevelVolume", "TestTaskLevelVolume", true)
 	defer os.Remove(tmpDirectory)
 	require.NoError(t, err, "creating test task failed")
 

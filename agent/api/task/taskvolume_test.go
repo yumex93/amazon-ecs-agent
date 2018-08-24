@@ -32,6 +32,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMarshalUnmarshalOldTaskVolumes(t *testing.T) {
+	taskData := `{"volumes":[{"host":{"sourcePath":"/path"},"name":"1"},{"host":{"hostpath":""}, "name":"2"}]}`
+
+	var out Task
+	err := json.Unmarshal([]byte(taskData), &out)
+	require.NoError(t, err, "Could not unmarshal task")
+	require.Len(t, out.Volumes, 2, "Incorrect number of volumes")
+
+	var v1, v2 TaskVolume
+
+	for _, v := range out.Volumes {
+		switch v.Name {
+		case "1":
+			v1 = v
+		case "2":
+			v2 = v
+		}
+	}
+
+	_, ok := v1.Volume.(*taskresourcevolume.FSHostVolume)
+	assert.True(t, ok, "Expected v1 to be host volume")
+	assert.Equal(t, "/path", v1.Volume.(*taskresourcevolume.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
+	_, ok = v2.Volume.(*taskresourcevolume.LocalDockerVolume)
+	assert.True(t, ok, "Expected v2 to be local empty volume")
+	assert.Equal(t, "", v2.Volume.Source(), "Expected v2 to have 'sourcepath' work correctly")
+}
+
 func TestMarshalUnmarshalTaskVolumes(t *testing.T) {
 	task := &Task{
 		Arn: "test",
@@ -65,7 +92,7 @@ func TestMarshalUnmarshalTaskVolumes(t *testing.T) {
 
 	_, ok := v1.Volume.(*taskresourcevolume.LocalDockerVolume)
 	assert.True(t, ok, "Expected v1 to be local empty volume")
-	assert.Equal(t, "/path", v2.Volume.Source(), "Expected v2 to have 'sourcepath' work correctly")
+	assert.Equal(t, "", v1.Volume.Source(), "Expected v2 to have 'sourcepath' work correctly")
 	_, ok = v2.Volume.(*taskresourcevolume.FSHostVolume)
 	assert.True(t, ok, "Expected v2 to be host volume")
 	assert.Equal(t, "/path", v2.Volume.(*taskresourcevolume.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
@@ -128,7 +155,7 @@ func TestInitializeSharedProvisionedVolume(t *testing.T) {
 				Type: "docker",
 				Volume: &taskresourcevolume.DockerVolumeConfig{
 					Scope:         "shared",
-					Autoprovision: true,
+					Autoprovision: false,
 				},
 			},
 		},
@@ -166,7 +193,7 @@ func TestInitializeSharedProvisionedVolumeError(t *testing.T) {
 				Type: "docker",
 				Volume: &taskresourcevolume.DockerVolumeConfig{
 					Scope:         "shared",
-					Autoprovision: true,
+					Autoprovision: false,
 				},
 			},
 		},
@@ -221,7 +248,7 @@ func TestInitializeSharedNonProvisionedVolume(t *testing.T) {
 	assert.Len(t, testTask.Containers[0].TransitionDependenciesMap, 0, "resource already exists")
 }
 
-func TestInitializeSharedNonProvisionedVolumeNotFoundError(t *testing.T) {
+func TestInitializeSharedAutoprovisionVolumeNotFoundError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dockerClient := mock_dockerapi.NewMockDockerClient(ctrl)
 
@@ -244,7 +271,7 @@ func TestInitializeSharedNonProvisionedVolumeNotFoundError(t *testing.T) {
 				Type: "docker",
 				Volume: &taskresourcevolume.DockerVolumeConfig{
 					Scope:         "shared",
-					Autoprovision: false,
+					Autoprovision: true,
 				},
 			},
 		},
@@ -257,7 +284,7 @@ func TestInitializeSharedNonProvisionedVolumeNotFoundError(t *testing.T) {
 	assert.Len(t, testTask.Containers[0].TransitionDependenciesMap, 1, "volume resource should be in the container dependency map")
 }
 
-func TestInitializeSharedNonProvisionedVolumeNotMatchError(t *testing.T) {
+func TestInitializeSharedAutoprovisionVolumeNotMatchError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dockerClient := mock_dockerapi.NewMockDockerClient(ctrl)
 
@@ -280,7 +307,7 @@ func TestInitializeSharedNonProvisionedVolumeNotMatchError(t *testing.T) {
 				Type: "docker",
 				Volume: &taskresourcevolume.DockerVolumeConfig{
 					Scope:         "shared",
-					Autoprovision: false,
+					Autoprovision: true,
 				},
 			},
 		},
@@ -295,7 +322,7 @@ func TestInitializeSharedNonProvisionedVolumeNotMatchError(t *testing.T) {
 	assert.Error(t, err, "volume resource details not match should cause task fail")
 }
 
-func TestInitializeSharedNonProvisionedVolumeTimeout(t *testing.T) {
+func TestInitializeSharedAutoprovisionVolumeTimeout(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dockerClient := mock_dockerapi.NewMockDockerClient(ctrl)
 
@@ -318,7 +345,7 @@ func TestInitializeSharedNonProvisionedVolumeTimeout(t *testing.T) {
 				Type: "docker",
 				Volume: &taskresourcevolume.DockerVolumeConfig{
 					Scope:         "shared",
-					Autoprovision: false,
+					Autoprovision: true,
 				},
 			},
 		},
