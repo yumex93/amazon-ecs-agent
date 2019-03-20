@@ -800,6 +800,7 @@ func (task *Task) addNetworkResourceProvisioningDependency(cfg *config.Config) e
 
 			pauseConfig := dockercontainer.Config{
 				User: containerConfig.User,
+				Image: fmt.Sprintf("%s:%s", cfg.PauseContainerImageName, cfg.PauseContainerTag),
 			}
 
 			bytes, _ := json.Marshal(pauseConfig)

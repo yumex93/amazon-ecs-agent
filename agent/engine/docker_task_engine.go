@@ -915,6 +915,7 @@ func (engine *DockerTaskEngine) createContainer(task *apitask.Task, container *a
 	}
 
 	createContainerBegin := time.Now()
+	seelog.Debugf("TEST: config values: %v", config)
 	metadata := client.CreateContainer(engine.ctx, config, hostConfig,
 		dockerContainerName, dockerclient.CreateContainerTimeout)
 	if metadata.DockerID != "" {
