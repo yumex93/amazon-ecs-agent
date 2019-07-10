@@ -16,13 +16,17 @@
 package task
 
 import (
+	"context"
 	"path/filepath"
 	"time"
 
+	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	"github.com/aws/amazon-ecs-agent/agent/config"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	resourcetype "github.com/aws/amazon-ecs-agent/agent/taskresource/types"
 	"github.com/cihub/seelog"
@@ -216,4 +220,76 @@ func (task *Task) dockerCPUShares(containerCPU uint) int64 {
 		return 2
 	}
 	return int64(containerCPU)
+}
+
+// initializeEFSResources checks the volume resource in the task to determine if the agent
+// should create the EFS resource before creating the container
+func (task *Task) initializeEFSResources(cfg *config.Config, dockerClient dockerapi.DockerClient, ctx context.Context) error {
+	requiredEFSVolumes := make(map[string][]*apicontainer.Container)
+	for _, container := range task.Containers {
+		for _, mountPoint := range container.MountPoints {
+			vol, ok := task.TaskVolumeByName(mountPoint.SourceVolume)
+			if !ok {
+				continue
+			}
+			if vol.Type != EFSVolumeType {
+				continue
+			}
+
+			container.BuildResourceDependency(mountPoint.SourceVolume,
+				resourcestatus.ResourceStatus(efs.EFSCreated),
+				apicontainerstatus.ContainerCreated)
+
+			if _, ok := requiredEFSVolumes[mountPoint.SourceVolume]; !ok {
+				requiredEFSVolumes[mountPoint.SourceVolume] = []*apicontainer.Container{}
+			}
+			requiredEFSVolumes[mountPoint.SourceVolume] = append(requiredEFSVolumes[mountPoint.SourceVolume], container)
+		}
+	}
+
+	// No need to create any dependencies if no EFS volumes
+	if len(requiredEFSVolumes) == 0 {
+		return nil
+	}
+
+	var pauseContainer *apicontainer.Container
+	if task.isNetworkModeVPC() {
+		if pauseContainer = task.GetPauseContainer(); pauseContainer == nil {
+			return errors.New("Cannot find pause container")
+		}
+	}
+
+	// Create EFS resources
+	for efsVolumeName, containers := range requiredEFSVolumes {
+		vol, _ := task.HostVolumeByName(efsVolumeName)
+		efsVolume, ok := vol.(*efs.EFSConfig)
+		if !ok {
+			return errors.New("efs: volume configuration does not match the type 'efs'")
+		}
+		targetDir := filepath.Join(cfg.DataDir, efs.DirPath, task.volumeName(efsVolumeName))
+		efsVolume.TargetDir = targetDir
+		efsVolume.DataDirOnHost = cfg.DataDirOnHost
+		efsRes := efs.NewEFSResource(task.Arn, efsVolumeName, ctx, dockerClient, task.isNetworkModeVPC(), targetDir, efsVolume.RootDir, efsVolume.DNSEndpoints,
+			efsVolume.ReadOnly, efsVolume.MountOptions, cfg.DataDirOnHost)
+		task.AddResource(resourcetype.EFSKey, efsRes)
+
+		// dependency added: application container stopped => task resource removed
+		for _, con := range containers {
+			efsRes.BuildContainerDependency(con.Name, apicontainerstatus.ContainerStopped,
+				resourcestatus.ResourceStatus(efs.EFSRemoved))
+		}
+
+		// Under awsvpc mode, additional dependencies needs to be added to make sure network stack set up first
+		// 1.pause container provisioned => efs resource created
+		// 2.efs resource removed => pause container stopped
+		if task.isNetworkModeVPC() {
+			efsRes.BuildContainerDependency(pauseContainer.Name, apicontainerstatus.ContainerResourcesProvisioned,
+				resourcestatus.ResourceStatus(efs.EFSCreated))
+
+			pauseContainer.BuildResourceDependency(efsVolumeName,
+				resourcestatus.ResourceStatus(efs.EFSRemoved),
+				apicontainerstatus.ContainerStopped)
+		}
+	}
+	return nil
 }

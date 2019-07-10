@@ -474,6 +474,16 @@ func (c *Container) IsInternal() bool {
 	return true
 }
 
+// IsPauseContainer returns true if the container type is `ContainerCNIPause`.
+// It returns false otherwise
+func (c *Container) IsPauseContainer() bool {
+	if c.Type == ContainerCNIPause {
+		return true
+	}
+
+	return false
+}
+
 // IsRunning returns true if the container's known status is either RUNNING
 // or RESOURCES_PROVISIONED. It returns false otherwise
 func (c *Container) IsRunning() bool {

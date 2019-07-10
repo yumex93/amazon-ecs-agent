@@ -41,6 +41,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/statechange"
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	utilsync "github.com/aws/amazon-ecs-agent/agent/utils/sync"
@@ -917,6 +918,16 @@ func (engine *DockerTaskEngine) createContainer(task *apitask.Task, container *a
 		seelog.Infof("Task engine [%s]: created container name mapping for task:  %s -> %s",
 			task.Arn, container.Name, dockerContainerName)
 		engine.saver.ForceSave()
+	}
+
+	// TODO: discuss whether it is an option to just update pause container name and replace randHex with task id
+	if container.IsPauseContainer() {
+		if resources, ok := task.GetResource(efs.ResourceName); ok {
+			for _, res := range resources {
+				efsRes := res.(*efs.EFSResource)
+				efsRes.SetPauseContainerName(dockerContainerName)
+			}
+		}
 	}
 
 	// Create metadata directory and file then populate it with common metadata of all containers of this task

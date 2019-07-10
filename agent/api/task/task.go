@@ -39,6 +39,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/asmauth"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/asmsecret"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/ssmsecret"
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	resourcetype "github.com/aws/amazon-ecs-agent/agent/taskresource/types"
@@ -307,6 +308,14 @@ func (task *Task) PostUnmarshalTask(cfg *config.Config,
 	// Adds necessary Pause containers for sharing PID or IPC namespaces
 	task.addNamespaceSharingProvisioningDependency(cfg)
 
+	// Initialization for EFS task resources, it has to be initialized after network resource initialization, since it
+	// may have dependency on task network, so pause container needs to be created first
+	err = task.initializeEFSResources(cfg, dockerClient, ctx)
+	if err != nil {
+		seelog.Errorf("Task [%s]: could not initialize EFS resources: %v", task.Arn, err)
+		return apierrors.NewResourceInitError(task.Arn, err)
+	}
+
 	return nil
 }
 
@@ -365,7 +374,7 @@ func (task *Task) initializeDockerLocalVolumes(dockerClient dockerapi.DockerClie
 			if !ok {
 				continue
 			}
-			if localVolume, ok := vol.(*taskresourcevolume.LocalDockerVolume); ok {
+			if localVolume, ok := vol.(*taskresource.LocalDockerVolume); ok {
 				localVolume.HostPath = task.volumeName(mountPoint.SourceVolume)
 				container.BuildResourceDependency(mountPoint.SourceVolume,
 					resourcestatus.ResourceStatus(taskresourcevolume.VolumeCreated),
@@ -865,13 +874,24 @@ func (task *Task) ContainerByName(name string) (*apicontainer.Container, bool) {
 
 // HostVolumeByName returns the task Volume for the given a volume name in that
 // task. The second return value indicates the presence of that volume
-func (task *Task) HostVolumeByName(name string) (taskresourcevolume.Volume, bool) {
+func (task *Task) HostVolumeByName(name string) (taskresource.Volume, bool) {
 	for _, v := range task.Volumes {
 		if v.Name == name {
 			return v.Volume, true
 		}
 	}
 	return nil, false
+}
+
+// TaskVolumeByName returns the Volume for the given a volume name in that
+// task. The second return value indicates the presence of that volume
+func (task *Task) TaskVolumeByName(name string) (TaskVolume, bool) {
+	for _, v := range task.Volumes {
+		if v.Name == name {
+			return v, true
+		}
+	}
+	return TaskVolume{}, false
 }
 
 // UpdateMountPoints updates the mount points of volumes that were created
@@ -885,7 +905,7 @@ func (task *Task) UpdateMountPoints(cont *apicontainer.Container, vols []types.M
 				// /path/ -> /path or \path\ -> \path
 				strings.Compare(vol.Destination, strings.TrimRight(containerPath, string(filepath.Separator))) == 0 {
 				if hostVolume, exists := task.HostVolumeByName(mountPoint.SourceVolume); exists {
-					if empty, ok := hostVolume.(*taskresourcevolume.LocalDockerVolume); ok {
+					if empty, ok := hostVolume.(*taskresource.LocalDockerVolume); ok {
 						empty.HostPath = vol.Source
 					}
 				}
@@ -1803,6 +1823,28 @@ func (task *Task) RecordExecutionStoppedAt(container *apicontainer.Container) {
 		task.Arn, container.Name, now.String())
 }
 
+// GetResource returns the task resource list of a specific resource type from ResourcesMap
+func (task *Task) GetResource(resourceType string) ([]taskresource.TaskResource, bool) {
+	task.lock.RLock()
+	defer task.lock.RUnlock()
+
+	var res []taskresource.TaskResource
+	var ok bool
+
+	switch resourceType {
+	case asmauth.ResourceName:
+		res, ok = task.ResourcesMapUnsafe[asmauth.ResourceName]
+	case ssmsecret.ResourceName:
+		res, ok = task.ResourcesMapUnsafe[ssmsecret.ResourceName]
+	case asmsecret.ResourceName:
+		res, ok = task.ResourcesMapUnsafe[asmsecret.ResourceName]
+	case efs.ResourceName:
+		res, ok = task.ResourcesMapUnsafe[efs.ResourceName]
+	}
+
+	return res, ok
+}
+
 // GetResources returns the list of task resources from ResourcesMap
 func (task *Task) GetResources() []taskresource.TaskResource {
 	task.lock.RLock()
@@ -2018,4 +2060,13 @@ func (task *Task) AssociationByTypeAndName(associationType, associationName stri
 	}
 
 	return nil, false
+}
+
+func (task *Task) GetPauseContainer() *apicontainer.Container {
+	for _, con := range task.Containers {
+		if con.Name == NetworkPauseContainerName {
+			return con
+		}
+	}
+	return nil
 }

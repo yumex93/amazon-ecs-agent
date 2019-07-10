@@ -17,9 +17,11 @@ package task
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/amazon-ecs-agent/agent/acs/model/ecsacs"
 	apiappmesh "github.com/aws/amazon-ecs-agent/agent/api/appmesh"
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
@@ -28,12 +30,14 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup/control/mock_control"
-	mock_ioutilwrapper "github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper/mocks"
-	"github.com/golang/mock/gomock"
-
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
+	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
+	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	dockercontainer "github.com/docker/docker/api/types/container"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/golang/mock/gomock"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +52,15 @@ const (
 	taskMemoryLimit           = 512
 	minDockerClientAPIVersion = dockerclient.Version_1_17
 
-	proxyName = "envoy"
+	proxyName     = "envoy"
+	efsVolumeName = "testEFSVolume"
+	efsFileSystem = "fs12345"
+	targetDir     = "/efs/targetDir"
+	rootDir       = "source"
+	mountOptions  = "mountOptions"
+	readOnly      = true
+	dataDir       = "testData"
+	dataDirOnHost = "/var/lib/ecs/data"
 )
 
 func TestAddNetworkResourceProvisioningDependencyNop(t *testing.T) {
@@ -557,4 +569,189 @@ func TestPostUnmarshalWithCPULimitsFail(t *testing.T) {
 	assert.Error(t, task.PostUnmarshalTask(&cfg, nil, nil, nil, nil))
 	assert.Equal(t, 0, len(task.GetResources()))
 	assert.Equal(t, 0, len(task.Containers[0].TransitionDependenciesMap))
+}
+
+func TestInitializeEFSResourcesAWSVPCMode(t *testing.T) {
+	task := &Task{
+		Arn:     validTaskArn,
+		Family:  "testFamily",
+		Version: "1",
+		Containers: []*apicontainer.Container{
+			{
+				Name: "c1",
+				MountPoints: []apicontainer.MountPoint{
+					{
+						SourceVolume:  "testEFSVolume",
+						ContainerPath: "/test/efs",
+						ReadOnly:      true,
+					}},
+				TransitionDependenciesMap: make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet),
+			},
+		},
+		ResourcesMapUnsafe: make(map[string][]taskresource.TaskResource),
+		Volumes: []TaskVolume{
+			{
+				Type: "efs",
+				Name: efsVolumeName,
+				Volume: &efs.EFSConfig{
+					RootDir: rootDir,
+				},
+			},
+		},
+		ENI: &apieni.ENI{
+			ID: "eni-1",
+		},
+	}
+
+	cfg := &config.Config{
+		PauseContainerImageName: "pause-container-image-name",
+		PauseContainerTag:       "pause-container-tag",
+		DataDir:                 dataDir,
+		DataDirOnHost:           dataDirOnHost,
+	}
+
+	task.addNetworkResourceProvisioningDependency(cfg)
+	task.initializeEFSResources(cfg, nil, nil)
+
+	vol := task.Volumes[0]
+	config, _ := vol.Volume.(*efs.EFSConfig)
+	assert.Equal(t, true, strings.Contains(config.Source(), "/var/lib/ecs/data/efs/ecs-testFamily-1-testEFSVolume"))
+	assert.Equal(t, true, strings.Contains(config.TargetDir, "testData/efs/ecs-testFamily-1-testEFSVolume"))
+
+	resources := task.GetResources()
+	assert.Equal(t, 1, len(resources))
+	res := resources[0]
+	assert.Equal(t, efsVolumeName, res.GetName())
+
+	cont := task.Containers[0]
+	resDeps := cont.TransitionDependenciesMap[apicontainerstatus.ContainerCreated].ResourceDependencies
+	assert.Equal(t, 1, len(resDeps))
+	assert.Equal(t, efsVolumeName, resDeps[0].Name)
+	assert.Equal(t, resourcestatus.ResourceStatus(efs.EFSCreated), resDeps[0].RequiredStatus)
+
+	assert.Equal(t, 1, len(res.GetContainerDependencies(resourcestatus.ResourceStatus(efs.EFSCreated))))
+	assert.Equal(t, 1, len(res.GetContainerDependencies(resourcestatus.ResourceStatus(efs.EFSRemoved))))
+
+	pauseContainer := task.GetPauseContainer()
+	deps := pauseContainer.TransitionDependenciesMap[apicontainerstatus.ContainerStopped].ResourceDependencies
+	assert.Equal(t, 1, len(deps))
+	assert.Equal(t, efsVolumeName, deps[0].Name)
+	assert.Equal(t, resourcestatus.ResourceStatus(efs.EFSRemoved), deps[0].RequiredStatus)
+}
+
+func TestInitializeEFSResourcesNonAWSVPCMode(t *testing.T) {
+	task := &Task{
+		Arn:     validTaskArn,
+		Family:  "testFamily",
+		Version: "1",
+		Containers: []*apicontainer.Container{
+			{
+				Name: "c1",
+				MountPoints: []apicontainer.MountPoint{
+					{
+						SourceVolume:  efsVolumeName,
+						ContainerPath: "/test/efs",
+						ReadOnly:      true,
+					}},
+				TransitionDependenciesMap: make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet),
+			},
+		},
+		ResourcesMapUnsafe: make(map[string][]taskresource.TaskResource),
+		Volumes: []TaskVolume{
+			{
+				Type:   "efs",
+				Name:   efsVolumeName,
+				Volume: &efs.EFSConfig{},
+			},
+		},
+	}
+
+	cfg := &config.Config{}
+
+	task.addNetworkResourceProvisioningDependency(cfg)
+	task.initializeEFSResources(cfg, nil, nil)
+	resources := task.GetResources()
+	assert.Equal(t, 1, len(resources))
+	res := resources[0]
+	assert.Equal(t, efsVolumeName, res.GetName())
+	cont := task.Containers[0]
+	resDeps := cont.TransitionDependenciesMap[apicontainerstatus.ContainerCreated].ResourceDependencies
+	assert.Equal(t, 1, len(resDeps))
+	assert.Equal(t, efsVolumeName, resDeps[0].Name)
+	assert.Equal(t, resourcestatus.ResourceStatus(efs.EFSCreated), resDeps[0].RequiredStatus)
+
+	assert.Equal(t, 0, len(res.GetContainerDependencies(resourcestatus.ResourceStatus(efs.EFSCreated))))
+	assert.Equal(t, 1, len(res.GetContainerDependencies(resourcestatus.ResourceStatus(efs.EFSRemoved))))
+}
+
+func TestInitializeEFSResourcesError(t *testing.T) {
+	task := &Task{
+		Arn:     validTaskArn,
+		Family:  "testFamily",
+		Version: "1",
+		Containers: []*apicontainer.Container{
+			{
+				Name: "c1",
+				MountPoints: []apicontainer.MountPoint{
+					{
+						SourceVolume:  efsVolumeName,
+						ContainerPath: "/test/efs",
+						ReadOnly:      true,
+					}},
+				TransitionDependenciesMap: make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet),
+			},
+		},
+		ResourcesMapUnsafe: make(map[string][]taskresource.TaskResource),
+		Volumes: []TaskVolume{
+			{
+				Type:   "efs",
+				Name:   efsVolumeName,
+				Volume: &volume.DockerVolumeConfig{},
+			},
+		},
+	}
+	cfg := &config.Config{}
+
+	res := task.initializeEFSResources(cfg, nil, nil)
+	assert.Equal(t, "efs: volume configuration does not match the type 'efs'", res.Error())
+}
+
+func TestPostUnmarshalTaskWithEFSVolumes(t *testing.T) {
+	taskFromACS := ecsacs.Task{
+		Arn:           strptr("myArn"),
+		DesiredStatus: strptr("RUNNING"),
+		Family:        strptr("myFamily"),
+		Version:       strptr("1"),
+		Containers: []*ecsacs.Container{
+			{
+				Name: strptr("myName1"),
+				MountPoints: []*ecsacs.MountPoint{
+					{
+						ContainerPath: strptr("/some/path1"),
+						SourceVolume:  strptr(efsVolumeName),
+					},
+				},
+			},
+		},
+		//TODO: EFSVolumeConfiguration needs to be finalized later
+		Volumes: []*ecsacs.Volume{
+			{
+				Name:                   strptr(efsVolumeName),
+				Type:                   strptr("efs"),
+				EFSVolumeConfiguration: &ecsacs.EFSVolumeConfiguration{},
+			},
+		},
+	}
+	seqNum := int64(42)
+	task, err := TaskFromACS(&taskFromACS, &ecsacs.PayloadMessage{SeqNum: &seqNum})
+	assert.Nil(t, err, "Should be able to handle acs task")
+	assert.Equal(t, 1, len(task.Containers)) // before PostUnmarshalTask
+	cfg := config.Config{}
+
+	task.PostUnmarshalTask(&cfg, nil, nil, nil, nil)
+	assert.Equal(t, 1, len(task.Containers), "Should match the number of containers as before PostUnmarshalTask")
+	assert.Equal(t, 1, len(task.Volumes), "Should have 1 volume")
+	taskVol := task.Volumes[0]
+	assert.Equal(t, efsVolumeName, taskVol.Name)
+	assert.Equal(t, EFSVolumeType, taskVol.Type)
 }

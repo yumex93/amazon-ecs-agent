@@ -16,6 +16,8 @@ package task
 import (
 	"encoding/json"
 
+	"github.com/aws/amazon-ecs-agent/agent/taskresource"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	"github.com/cihub/seelog"
 	"github.com/pkg/errors"
@@ -24,6 +26,7 @@ import (
 const (
 	HostVolumeType   = "host"
 	DockerVolumeType = "docker"
+	EFSVolumeType    = "efs"
 )
 
 // TaskVolume is a definition of all the volumes available for containers to
@@ -31,7 +34,7 @@ const (
 type TaskVolume struct {
 	Type   string `json:"type"`
 	Name   string `json:"name"`
-	Volume taskresourcevolume.Volume
+	Volume taskresource.Volume
 }
 
 // UnmarshalJSON for TaskVolume determines the name and volume type, and
@@ -64,6 +67,8 @@ func (tv *TaskVolume) UnmarshalJSON(b []byte) error {
 		return tv.unmarshalHostVolume(intermediate["host"])
 	case DockerVolumeType:
 		return tv.unmarshalDockerVolume(intermediate["dockerVolumeConfiguration"])
+	case EFSVolumeType:
+		return tv.unmarshalEFSVolume(intermediate["efsVolumeConfiguration"])
 	default:
 		return errors.Errorf("invalid Volume: type must be docker or host, got %q", tv.Type)
 	}
@@ -85,6 +90,8 @@ func (tv *TaskVolume) MarshalJSON() ([]byte, error) {
 		result["dockerVolumeConfiguration"] = tv.Volume
 	case HostVolumeType:
 		result["host"] = tv.Volume
+	case EFSVolumeType:
+		result["efsVolumeConfiguration"] = tv.Volume
 	default:
 		return nil, errors.Errorf("unrecognized volume type: %q", tv.Type)
 	}
@@ -112,7 +119,7 @@ func (tv *TaskVolume) unmarshalHostVolume(data json.RawMessage) error {
 	}
 
 	// Default to trying to unmarshal it as a FSHostVolume
-	var hostvolume taskresourcevolume.FSHostVolume
+	var hostvolume taskresource.FSHostVolume
 	err := json.Unmarshal(data, &hostvolume)
 	if err != nil {
 		return err
@@ -121,11 +128,25 @@ func (tv *TaskVolume) unmarshalHostVolume(data json.RawMessage) error {
 		// If the FSSourcePath is empty, that must mean it was not an
 		// FSHostVolume (empty path is invalid for that type).
 		// Unmarshal it as local docker volume.
-		localVolume := &taskresourcevolume.LocalDockerVolume{}
+		localVolume := &taskresource.LocalDockerVolume{}
 		json.Unmarshal(data, localVolume)
 		tv.Volume = localVolume
 	} else {
 		tv.Volume = &hostvolume
 	}
+	return nil
+}
+
+func (tv *TaskVolume) unmarshalEFSVolume(data json.RawMessage) error {
+	if data == nil {
+		return errors.New("invalid volume: empty volume configuration")
+	}
+	var efsConfig efs.EFSConfig
+	err := json.Unmarshal(data, &efsConfig)
+	if err != nil {
+		return err
+	}
+
+	tv.Volume = &efsConfig
 	return nil
 }
