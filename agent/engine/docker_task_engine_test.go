@@ -61,7 +61,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	mock_taskresource "github.com/aws/amazon-ecs-agent/agent/taskresource/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/ssmsecret"
-	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	mock_ttime "github.com/aws/amazon-ecs-agent/agent/utils/ttime/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
@@ -98,6 +97,7 @@ const (
 	expectedDelaySeconds        = 10
 	expectedDelay               = expectedDelaySeconds * time.Second
 	taskArn                     = "task1"
+	efsVolume                   = "efsVolume1"
 )
 
 var (
@@ -2236,7 +2236,7 @@ func TestContainerMetadataUpdatedOnRestart(t *testing.T) {
 				task.Volumes = []apitask.TaskVolume{
 					{
 						Name:   "empty",
-						Volume: &taskresourcevolume.LocalDockerVolume{},
+						Volume: &taskresource.LocalDockerVolume{},
 					},
 				}
 				client.EXPECT().InspectContainer(gomock.Any(), dockerContainer.DockerName, gomock.Any()).Return(&types.ContainerJSON{

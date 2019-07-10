@@ -365,6 +365,21 @@ func (s DockerConfig) GoString() string {
 	return s.String()
 }
 
+// TODO: needs to be finalized later
+type EFSVolumeConfiguration struct {
+	_ struct{} `type:"structure"`
+}
+
+// String returns the string representation
+func (s EFSVolumeConfiguration) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s EFSVolumeConfiguration) GoString() string {
+	return s.String()
+}
+
 type DockerVolumeConfiguration struct {
 	_ struct{} `type:"structure"`
 
@@ -1317,6 +1332,8 @@ func (s VersionInfo) GoString() string {
 
 type Volume struct {
 	_ struct{} `type:"structure"`
+
+	EFSVolumeConfiguration *EFSVolumeConfiguration `locationName:"efsVolumeConfiguration" type:"structure"`
 
 	DockerVolumeConfiguration *DockerVolumeConfiguration `locationName:"dockerVolumeConfiguration" type:"structure"`
 

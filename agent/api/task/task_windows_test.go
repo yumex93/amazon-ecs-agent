@@ -26,9 +26,8 @@ import (
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
 	"github.com/aws/amazon-ecs-agent/agent/config"
-	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
-
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	dockercontainer "github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 )
@@ -87,7 +86,7 @@ func TestPostUnmarshalWindowsCanonicalPaths(t *testing.T) {
 			{
 				Name: "sourceVolume",
 				Type: "host",
-				Volume: &taskresourcevolume.FSHostVolume{
+				Volume: &taskresource.FSHostVolume{
 					FSSourcePath: `c:\host\path`,
 				},
 			},

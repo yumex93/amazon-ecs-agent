@@ -29,8 +29,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	cgroup "github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup/control"
-	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
-
 	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	"github.com/stretchr/testify/assert"
 )
@@ -119,7 +117,7 @@ func TestLocalHostVolumeMount(t *testing.T) {
 
 func createTestLocalVolumeMountTask() *apitask.Task {
 	testTask := createTestTask("testLocalHostVolumeMount")
-	testTask.Volumes = []apitask.TaskVolume{{Name: "test-tmp", Volume: &taskresourcevolume.LocalDockerVolume{}}}
+	testTask.Volumes = []apitask.TaskVolume{{Name: "test-tmp", Volume: &taskresource.LocalDockerVolume{}}}
 	testTask.Containers[0].Image = testVolumeImage
 	testTask.Containers[0].MountPoints = []apicontainer.MountPoint{{ContainerPath: "/host/tmp", SourceVolume: "test-tmp"}}
 	testTask.ResourcesMapUnsafe = make(map[string][]taskresource.TaskResource)

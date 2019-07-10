@@ -41,7 +41,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	mock_ioutilwrapper "github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper/mocks"
-	mock_oswrapper "github.com/aws/amazon-ecs-agent/agent/utils/oswrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/golang/mock/gomock"
 
@@ -391,6 +390,69 @@ func TestTaskCPULimitHappyPath(t *testing.T) {
 	}
 }
 
+// TestCreateContainerWithEFSResource tests bind mounts are created correctly and pause container name is set correctly
+// when there is EFS resource.
+func TestCreateContainerWithEFSResource(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	ctrl, client, _, taskEngine, _, _, _ := mocks(t, ctx, &defaultConfig)
+	defer ctrl.Finish()
+
+	efsRes := &efs.EFSResource{
+		Config: efs.EFSConfig{
+			TargetDir:     "/data/efs/vol-12345",
+			DataDirOnHost: "/var/lib/data",
+		},
+	}
+	containerMap := map[string]*apicontainer.DockerContainer{}
+	testTask := &apitask.Task{
+		Arn:     labelsTaskARN,
+		Family:  "myFamily",
+		Version: "1",
+		Containers: []*apicontainer.Container{
+			{
+				Name: "pauseContainer",
+				Type: apicontainer.ContainerCNIPause,
+				MountPoints: []apicontainer.MountPoint{
+					{
+						SourceVolume:  efsVolume,
+						ContainerPath: "/test/efs",
+						ReadOnly:      true,
+					},
+				},
+			},
+		},
+		Volumes: []apitask.TaskVolume{
+			{
+				Name: efsVolume,
+				Type: "efs",
+				Volume: &efs.EFSConfig{
+					TargetDir:     "/data/efs/vol-12345",
+					DataDirOnHost: "/var/lib/data",
+				},
+			},
+		},
+		ResourcesMapUnsafe: map[string][]taskresource.TaskResource{
+			efs.ResourceName: []taskresource.TaskResource{efsRes},
+		},
+	}
+
+	expectedConfig, err := testTask.DockerHostConfig(testTask.Containers[0], containerMap, defaultDockerClientAPIVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check binds are correctly created.
+	assert.Equal(t, "/var/lib/data/efs/vol-12345:/test/efs:ro", expectedConfig.Binds[0])
+	client.EXPECT().APIVersion().Return(defaultDockerClientAPIVersion, nil).AnyTimes()
+	client.EXPECT().CreateContainer(gomock.Any(), gomock.Any(), expectedConfig, gomock.Any(), gomock.Any())
+	taskEngine.(*DockerTaskEngine).createContainer(testTask, testTask.Containers[0])
+
+	// Check pause container name is correctly set.
+	res := testTask.ResourcesMapUnsafe[efs.ResourceName][0].(*efs.EFSResource)
+	assert.NotNil(t, res.GetPauseContainerName())
+}
+
 //TODO: add another test for resource dependency
 // TestResourceWithDependencyContainerProgression tests the container progression based on a
 // resource dependency which has dependency on another container
@@ -407,7 +469,7 @@ func TestResourceWithDependencyContainerProgression(t *testing.T) {
 	sleepContainer.TransitionDependenciesMap = make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet)
 	sleepContainer.BuildResourceDependency("efsVolume", resourcestatus.ResourceCreated, apicontainerstatus.ContainerCreated)
 
-	mockOS := mock_oswrapper.NewMockOS(ctrl)
+	//mockOS := mock_oswrapper.NewMockOS(ctrl)
 	targetDir := "/data/efs/ecs-sleep5-2-efsVolume-a68ef4b6e0fba38d3500"
 	rootDir := "/"
 	dnsEndpoints := []string{"fs-324562.us-west-2.amazon.com"}
@@ -433,8 +495,8 @@ func TestResourceWithDependencyContainerProgression(t *testing.T) {
 	efs.SetMountHelper()
 
 	// Ensure that the resource is created first
-	mockOS.EXPECT().MkdirAll(targetDir, os.ModePerm).Return(nil)
-	mockOS.EXPECT().RemoveAll(targetDir).Return(nil)
+	//mockOS.EXPECT().MkdirAll(targetDir, os.ModePerm).Return(nil)
+	//mockOS.EXPECT().RemoveAll(targetDir).Return(nil)
 	imageManager.EXPECT().AddAllImageStates(gomock.Any()).AnyTimes()
 	client.EXPECT().PullImage(gomock.Any(), sleepContainer.Image, nil, gomock.Any()).Return(dockerapi.DockerContainerMetadata{}).AnyTimes()
 	imageManager.EXPECT().RecordContainerReference(sleepContainer).Return(nil)
@@ -479,10 +541,27 @@ func TestResourceWithDependencyContainerProgression(t *testing.T) {
 			}()
 		}).Return(dockerapi.DockerContainerMetadata{DockerID: containerID + ":" + sleepContainer.Name})
 
-	addTaskToEngine(t, ctx, taskEngine, sleepTask, mockTime, &containerEventsWG)
+	addTaskToEngineForEFS(t, ctx, taskEngine, sleepTask, mockTime, &containerEventsWG)
 
 	cleanup := make(chan time.Time, 1)
 	mockTime.EXPECT().After(gomock.Any()).Return(cleanup).AnyTimes()
+
+	// Simulate a container stop event from docker
+	eventStream <- dockerapi.DockerContainerChangeEvent{
+		Status: apicontainerstatus.ContainerStopped,
+		DockerContainerMetadata: dockerapi.DockerContainerMetadata{
+			DockerID: containerID + ":" + sleepContainer.Name,
+			ExitCode: aws.Int(exitCode),
+		},
+	}
+	eventStream <- dockerapi.DockerContainerChangeEvent{
+		Status: apicontainerstatus.ContainerStopped,
+		DockerContainerMetadata: dockerapi.DockerContainerMetadata{
+			DockerID: containerID1 + ":" + sleepContainer.Name,
+			ExitCode: aws.Int(exitCode),
+		},
+	}
+	waitForStopEventsForEFS(t, taskEngine.StateChangeEvents(), true)
 }
 
 

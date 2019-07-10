@@ -248,6 +248,33 @@ func addTaskToEngine(t *testing.T,
 	createStartEventsReported.Wait()
 }
 
+// addTaskToEngine adds a test task to the engine. It waits for a task to reach the
+// steady state before returning. Hence, this should not be used for tests, which
+// expect container stops to be invoked before a task reaches its steady state
+func addTaskToEngineForEFS(t *testing.T,
+	ctx context.Context,
+	taskEngine TaskEngine,
+	sleepTask *apitask.Task,
+	mockTime *mock_ttime.MockTime,
+	createStartEventsReported *sync.WaitGroup) {
+	// steadyStateCheckWait is used to force the test to wait until the steady-state check
+	// has been invoked at least once
+	mockTime.EXPECT().Now().Return(time.Now()).AnyTimes()
+
+	err := taskEngine.Init(ctx)
+	assert.NoError(t, err)
+
+	taskEngine.AddTask(sleepTask)
+	waitForRunningEventsForEFS(t, taskEngine.StateChangeEvents())
+
+	// Wait for all events to be consumed prior to moving it towards stopped; we
+	// don't want to race the below with these or we'll end up with the "going
+	// backwards in state" stop and we haven't 'expect'd for that
+
+	// Wait for container create and start events to be processed
+	createStartEventsReported.Wait()
+}
+
 func createDockerEvent(status apicontainerstatus.ContainerStatus) dockerapi.DockerContainerChangeEvent {
 	meta := dockerapi.DockerContainerMetadata{
 		DockerID: containerID,
@@ -259,6 +286,28 @@ func createDockerEvent(status apicontainerstatus.ContainerStatus) dockerapi.Dock
 // and the task
 func waitForRunningEvents(t *testing.T, stateChangeEvents <-chan statechange.Event) {
 	event := <-stateChangeEvents
+	assert.Equal(t, event.(api.ContainerStateChange).Status, apicontainerstatus.ContainerRunning,
+		"Expected container to be RUNNING")
+
+	event = <-stateChangeEvents
+	assert.Equal(t, event.(api.TaskStateChange).Status, apitaskstatus.TaskRunning,
+		"Expected task to be RUNNING")
+
+	select {
+	case <-stateChangeEvents:
+		t.Fatal("Should be out of events")
+	default:
+	}
+}
+
+// waitForRunningEvents waits for a task to emit 'RUNNING' events for a container
+// and the task
+func waitForRunningEventsForEFS(t *testing.T, stateChangeEvents <-chan statechange.Event) {
+	event := <-stateChangeEvents
+	assert.Equal(t, event.(api.ContainerStateChange).Status, apicontainerstatus.ContainerRunning,
+		"Expected container to be RUNNING")
+
+	event = <-stateChangeEvents
 	assert.Equal(t, event.(api.ContainerStateChange).Status, apicontainerstatus.ContainerRunning,
 		"Expected container to be RUNNING")
 
@@ -292,6 +341,34 @@ func waitForStopEvents(t *testing.T, stateChangeEvents <-chan statechange.Event,
 	default:
 	}
 }
+
+// waitForStopEvents waits for a task to emit 'STOPPED' events for a container
+// and the task
+func waitForStopEventsForEFS(t *testing.T, stateChangeEvents <-chan statechange.Event, verifyExitCode bool) {
+	event := <-stateChangeEvents
+	if cont := event.(api.ContainerStateChange); cont.Status != apicontainerstatus.ContainerStopped {
+		t.Fatal("Expected container to stop first")
+		if verifyExitCode {
+			assert.Equal(t, *cont.ExitCode, 1, "Exit code should be present")
+		}
+	}
+	event = <-stateChangeEvents
+	if cont := event.(api.ContainerStateChange); cont.Status != apicontainerstatus.ContainerStopped {
+		t.Fatal("Expected container to stop first")
+		if verifyExitCode {
+			assert.Equal(t, *cont.ExitCode, 1, "Exit code should be present")
+		}
+	}
+	event = <-stateChangeEvents
+	assert.Equal(t, event.(api.TaskStateChange).Status, apitaskstatus.TaskStopped, "Expected task to be STOPPED")
+
+	select {
+	case <-stateChangeEvents:
+		t.Fatal("Should be out of events")
+	default:
+	}
+}
+
 
 func waitForContainerHealthStatus(t *testing.T, testTask *apitask.Task) {
 	ctx, cancel := context.WithTimeout(context.TODO(), waitTaskStateChangeDuration)

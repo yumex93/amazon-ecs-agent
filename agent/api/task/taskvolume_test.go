@@ -26,6 +26,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	"github.com/docker/docker/api/types"
 	"github.com/golang/mock/gomock"
 	"github.com/pkg/errors"
@@ -52,10 +53,10 @@ func TestMarshalUnmarshalOldTaskVolumes(t *testing.T) {
 		}
 	}
 
-	_, ok := v1.Volume.(*taskresourcevolume.FSHostVolume)
+	_, ok := v1.Volume.(*taskresource.FSHostVolume)
 	assert.True(t, ok, "Expected v1 to be host volume")
-	assert.Equal(t, "/path", v1.Volume.(*taskresourcevolume.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
-	_, ok = v2.Volume.(*taskresourcevolume.LocalDockerVolume)
+	assert.Equal(t, "/path", v1.Volume.(*taskresource.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
+	_, ok = v2.Volume.(*taskresource.LocalDockerVolume)
 	assert.True(t, ok, "Expected v2 to be local empty volume")
 	assert.Equal(t, "", v2.Volume.Source(), "Expected v2 to have 'sourcepath' work correctly")
 }
@@ -64,9 +65,10 @@ func TestMarshalUnmarshalTaskVolumes(t *testing.T) {
 	task := &Task{
 		Arn: "test",
 		Volumes: []TaskVolume{
-			{Name: "1", Type: HostVolumeType, Volume: &taskresourcevolume.LocalDockerVolume{}},
-			{Name: "2", Type: HostVolumeType, Volume: &taskresourcevolume.FSHostVolume{FSSourcePath: "/path"}},
+			{Name: "1", Type: HostVolumeType, Volume: &taskresource.LocalDockerVolume{}},
+			{Name: "2", Type: HostVolumeType, Volume: &taskresource.FSHostVolume{FSSourcePath: "/path"}},
 			{Name: "3", Type: DockerVolumeType, Volume: &taskresourcevolume.DockerVolumeConfig{Scope: "task", Driver: "local"}},
+			{Name: "4", Type: EFSVolumeType, Volume: &efs.EFSConfig{TargetDir: "/test/efs", RootDir: "/"}},
 		},
 	}
 
@@ -76,9 +78,9 @@ func TestMarshalUnmarshalTaskVolumes(t *testing.T) {
 	var out Task
 	err = json.Unmarshal(marshal, &out)
 	require.NoError(t, err, "Could not unmarshal task")
-	require.Len(t, out.Volumes, 3, "Incorrect number of volumes")
+	require.Len(t, out.Volumes, 4, "Incorrect number of volumes")
 
-	var v1, v2, v3 TaskVolume
+	var v1, v2, v3, v4 TaskVolume
 
 	for _, v := range out.Volumes {
 		switch v.Name {
@@ -88,20 +90,30 @@ func TestMarshalUnmarshalTaskVolumes(t *testing.T) {
 			v2 = v
 		case "3":
 			v3 = v
+		case "4":
+			v4 = v
 		}
 	}
 
-	_, ok := v1.Volume.(*taskresourcevolume.LocalDockerVolume)
+	_, ok := v1.Volume.(*taskresource.LocalDockerVolume)
 	assert.True(t, ok, "Expected v1 to be local empty volume")
 	assert.Equal(t, "", v1.Volume.Source(), "Expected v2 to have 'sourcepath' work correctly")
-	_, ok = v2.Volume.(*taskresourcevolume.FSHostVolume)
+	_, ok = v2.Volume.(*taskresource.FSHostVolume)
 	assert.True(t, ok, "Expected v2 to be host volume")
-	assert.Equal(t, "/path", v2.Volume.(*taskresourcevolume.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
+	assert.Equal(t, "/path", v2.Volume.(*taskresource.FSHostVolume).FSSourcePath, "Unmarshaled v2 didn't match marshalled v2")
 
 	dockerVolume, ok := v3.Volume.(*taskresourcevolume.DockerVolumeConfig)
 	assert.True(t, ok, "incorrect DockerVolumeConfig type")
 	assert.Equal(t, "task", dockerVolume.Scope)
 	assert.Equal(t, "local", dockerVolume.Driver)
+
+	efsVolume, ok := v4.Volume.(*efs.EFSConfig)
+	assert.True(t, ok, "incorrect EFSConfig type")
+	assert.Equal(t, "/test/efs", efsVolume.TargetDir)
+	assert.Equal(t, "/", efsVolume.RootDir)
+
+	_, ok = v3.Volume.(*efs.EFSConfig)
+	assert.False(t, ok, "should be DockerVolumeConfig type")
 }
 
 func TestInitializeLocalDockerVolume(t *testing.T) {
@@ -122,7 +134,7 @@ func TestInitializeLocalDockerVolume(t *testing.T) {
 			{
 				Name:   "empty-volume-test",
 				Type:   "docker",
-				Volume: &taskresourcevolume.LocalDockerVolume{},
+				Volume: &taskresource.LocalDockerVolume{},
 			},
 		},
 	}

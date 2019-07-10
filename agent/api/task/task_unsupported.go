@@ -1,6 +1,6 @@
 // +build !linux,!windows
 
-// Copyright 2014-2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -16,9 +16,11 @@
 package task
 
 import (
+	"context"
 	"time"
 
 	"github.com/aws/amazon-ecs-agent/agent/config"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/cihub/seelog"
 	dockercontainer "github.com/docker/docker/api/types/container"
@@ -48,6 +50,10 @@ func (task *Task) adjustForPlatform(cfg *config.Config) {
 func getCanonicalPath(path string) string { return path }
 
 func (task *Task) initializeCgroupResourceSpec(cgroupPath string, cGroupCPUPeriod time.Duration, resourceFields *taskresource.ResourceFields) error {
+	return nil
+}
+
+func (task *Task) initializeEFSResources(cfg *config.Config, dockerClient dockerapi.DockerClient, ctx context.Context) error {
 	return nil
 }
 

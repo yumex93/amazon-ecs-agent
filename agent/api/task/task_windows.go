@@ -16,6 +16,7 @@
 package task
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"runtime"
@@ -23,8 +24,8 @@ import (
 	"time"
 
 	"github.com/aws/amazon-ecs-agent/agent/config"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
-	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	"github.com/cihub/seelog"
 	dockercontainer "github.com/docker/docker/api/types/container"
 )
@@ -59,7 +60,7 @@ func (task *Task) adjustForPlatform(cfg *config.Config) {
 // case-sensitive string comparison that takes place elsewhere in the code.
 func (task *Task) downcaseAllVolumePaths() {
 	for _, volume := range task.Volumes {
-		if hostVol, ok := volume.Volume.(*taskresourcevolume.FSHostVolume); ok {
+		if hostVol, ok := volume.Volume.(*taskresource.FSHostVolume); ok {
 			hostVol.FSSourcePath = getCanonicalPath(hostVol.FSSourcePath)
 		}
 	}
@@ -123,4 +124,8 @@ func (task *Task) dockerCPUShares(containerCPU uint) int64 {
 
 func (task *Task) initializeCgroupResourceSpec(cgroupPath string, cGroupCPUPeriod time.Duration, resourceFields *taskresource.ResourceFields) error {
 	return errors.New("unsupported platform")
+}
+
+func (task *Task) initializeEFSResources(cfg *config.Config, dockerClient dockerapi.DockerClient, ctx context.Context) error {
+	return nil
 }
