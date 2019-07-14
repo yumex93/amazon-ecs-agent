@@ -26,6 +26,8 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate"
 	engine_testutils "github.com/aws/amazon-ecs-agent/agent/engine/testutils"
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
+	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -175,4 +177,59 @@ func TestLoadsDataForGPU(t *testing.T) {
 	assert.Equal(t, "container_1", container.Name)
 	assert.Equal(t, []string{"0", "1"}, container.GPUIDs)
 	assert.Equal(t, "0,1", container.Environment["NVIDIA_VISIBLE_DEVICES"])
+}
+
+// verify that the state manager correctly loads efs related fields in state file
+func TestLoadsDataForEFS(t *testing.T) {
+	cfg := &config.Config{DataDir: filepath.Join(".", "testdata", "v23", "efs")}
+	taskEngine := engine.NewTaskEngine(&config.Config{}, nil, nil, nil, nil, dockerstate.NewTaskEngineState(), nil, nil)
+	var containerInstanceArn, cluster, savedInstanceID string
+	var sequenceNumber int64
+	stateManager, err := statemanager.NewStateManager(cfg,
+		statemanager.AddSaveable("TaskEngine", taskEngine),
+		statemanager.AddSaveable("ContainerInstanceArn", &containerInstanceArn),
+		statemanager.AddSaveable("Cluster", &cluster),
+		statemanager.AddSaveable("EC2InstanceID", &savedInstanceID),
+		statemanager.AddSaveable("SeqNum", &sequenceNumber),
+	)
+	assert.NoError(t, err)
+
+	err = stateManager.Load()
+	assert.NoError(t, err)
+	assert.Equal(t, "state-file", cluster)
+	assert.EqualValues(t, 0, sequenceNumber)
+
+	tasks, err := taskEngine.ListTasks()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(tasks))
+
+	task := tasks[0]
+	assert.Equal(t, "arn:aws:ecs:us-west-2:1234567890:task/fad405be-8705-4175-877b-db50109a15f2", task.Arn)
+	assert.Equal(t, "efs-state", task.Family)
+	assert.Equal(t, 2, len(task.Containers))
+
+	volume := task.Volumes[0]
+	assert.Equal(t, "efsVolume", volume.Name)
+	assert.Equal(t, "efs", volume.Type)
+	vol := volume.Volume.(*efs.EFSConfig)
+	assert.Equal(t, "fs-324562", vol.FileSystem)
+	assert.Equal(t, "/", vol.RootDir)
+	assert.Equal(t, "/data/efs/ecs-efs-state-1-efsVolume-a68ef4b6e0fba38d3500", vol.TargetDir)
+	assert.Equal(t, "fs-324562.us-west-2.amazon.com", vol.DNSEndpoints[0])
+	assert.Equal(t, "rsize=1048576,wsize=1048576,timeo=10,hard,retrans=2,noresvport,vers=4", vol.MountOptions)
+	assert.True(t, vol.ReadOnly)
+	assert.Equal(t, "/var/lib/data", vol.DataDirOnHost)
+
+	efsRes, ok := task.ResourcesMapUnsafe["efs"]
+	assert.True(t, ok)
+	createDep := efsRes[0].GetContainerDependencies(resourcestatus.ResourceCreated)
+	assert.Equal(t, "~internal~ecs~pause", createDep[0].ContainerName)
+	assert.Equal(t, "RESOURCES_PROVISIONED", createDep[0].SatisfiedStatus.String())
+	removeDep := efsRes[0].GetContainerDependencies(resourcestatus.ResourceRemoved)
+	assert.Equal(t, "container_1", removeDep[0].ContainerName)
+	assert.Equal(t, "STOPPED", removeDep[0].SatisfiedStatus.String())
+
+	assert.Equal(t, resourcestatus.ResourceCreated, efsRes[0].GetDesiredStatus())
+	assert.Equal(t, resourcestatus.ResourceCreated, efsRes[0].GetKnownStatus())
+	assert.Equal(t, resourcestatus.ResourceStatusNone, efsRes[0].GetAppliedStatus())
 }
