@@ -35,6 +35,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/utils/oswrapper"
 	"github.com/cihub/seelog"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -573,4 +574,29 @@ func (efs *EFSResource) UpdateAppliedStatus(status resourcestatus.ResourceStatus
 	defer efs.lock.RUnlock()
 
 	efs.appliedStatusUnsafe = status
+}
+
+func SetLookUpHostHelper(ips []string, err error) {
+	lookUpHostHelper = func(string) ([]string, error) {
+		return ips, err
+	}
+}
+
+func SetMountHelper(){
+	mountSyscall = func(device string, target string, fstype string, flags uintptr, opts string) error {
+		return nil
+	}
+
+	unmountSyscall = func(string, int) error {
+		return nil
+	}
+}
+
+func ResetLookUpHostHelper(){
+	lookUpHostHelper = net.LookupHost
+}
+
+func ResetMountHelper(){
+	mountSyscall = unix.Mount
+	unmountSyscall = unix.Unmount
 }

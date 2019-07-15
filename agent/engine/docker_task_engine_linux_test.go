@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -37,8 +38,10 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup/control/mock_control"
+	"github.com/aws/amazon-ecs-agent/agent/taskresource/efs"
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	mock_ioutilwrapper "github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper/mocks"
+	mock_oswrapper "github.com/aws/amazon-ecs-agent/agent/utils/oswrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/golang/mock/gomock"
 
@@ -49,6 +52,7 @@ import (
 
 const (
 	cgroupMountPath = "/sys/fs/cgroup"
+	containerID1  = "containerID1"
 )
 
 func init() {
@@ -386,3 +390,99 @@ func TestTaskCPULimitHappyPath(t *testing.T) {
 		})
 	}
 }
+
+//TODO: add another test for resource dependency
+// TestResourceWithDependencyContainerProgression tests the container progression based on a
+// resource dependency which has dependency on another container
+func TestResourceWithDependencyContainerProgression(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	ctrl, client, mockTime, taskEngine, _, imageManager, _ := mocks(t, ctx, &defaultConfig)
+	defer ctrl.Finish()
+
+	sleepTask := testdata.LoadTask("sleep5TaskEFS")
+	sleepContainer := sleepTask.Containers[0]
+	depContainer := sleepTask.Containers[1]
+
+	sleepContainer.TransitionDependenciesMap = make(map[apicontainerstatus.ContainerStatus]apicontainer.TransitionDependencySet)
+	sleepContainer.BuildResourceDependency("efsVolume", resourcestatus.ResourceCreated, apicontainerstatus.ContainerCreated)
+
+	mockOS := mock_oswrapper.NewMockOS(ctrl)
+	targetDir := "/data/efs/ecs-sleep5-2-efsVolume-a68ef4b6e0fba38d3500"
+	rootDir := "/"
+	dnsEndpoints := []string{"fs-324562.us-west-2.amazon.com"}
+	readOnly := true
+	nfsMountOptions := "rsize=1048576,wsize=1048576,timeo=10,hard,retrans=2,noresvport,vers=4"
+	dataDirOnHost := "/var/lib/data"
+
+	efsResource := efs.NewEFSResource(sleepTask.Arn, "efsVolume", ctx, client, false, targetDir, rootDir, dnsEndpoints, readOnly, nfsMountOptions, dataDirOnHost)
+	efsResource.BuildContainerDependency(depContainer.Name, apicontainerstatus.ContainerCreated, resourcestatus.ResourceCreated)
+	efsResource.BuildContainerDependency(depContainer.Name, apicontainerstatus.ContainerStopped, resourcestatus.ResourceRemoved)
+
+	sleepTask.ResourcesMapUnsafe = make(map[string][]taskresource.TaskResource)
+	sleepTask.AddResource("efs", efsResource)
+	eventStream := make(chan dockerapi.DockerContainerChangeEvent)
+	// containerEventsWG is used to force the test to wait until the container created and started
+	// events are processed
+	containerEventsWG := sync.WaitGroup{}
+	client.EXPECT().ContainerEvents(gomock.Any()).Return(eventStream, nil)
+
+	defer efs.ResetLookUpHostHelper()
+	defer efs.ResetMountHelper()
+	efs.SetLookUpHostHelper([]string{"127.0.0.1"}, nil)
+	efs.SetMountHelper()
+
+	// Ensure that the resource is created first
+	mockOS.EXPECT().MkdirAll(targetDir, os.ModePerm).Return(nil)
+	mockOS.EXPECT().RemoveAll(targetDir).Return(nil)
+	imageManager.EXPECT().AddAllImageStates(gomock.Any()).AnyTimes()
+	client.EXPECT().PullImage(gomock.Any(), sleepContainer.Image, nil, gomock.Any()).Return(dockerapi.DockerContainerMetadata{}).AnyTimes()
+	imageManager.EXPECT().RecordContainerReference(sleepContainer).Return(nil)
+	imageManager.EXPECT().RecordContainerReference(depContainer).Return(nil)
+	imageManager.EXPECT().GetImageStateFromImageName(sleepContainer.Image).Return(nil, false)
+	imageManager.EXPECT().GetImageStateFromImageName(depContainer.Image).Return(nil, false)
+	client.EXPECT().APIVersion().Return(defaultDockerClientAPIVersion, nil).AnyTimes()
+	client.EXPECT().CreateContainer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Do(
+		func(ctx interface{}, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, containerName string, z time.Duration) {
+			assert.True(t, strings.Contains(containerName, sleepContainer.Name))
+			containerEventsWG.Add(1)
+			go func() {
+				eventStream <- createDockerEvent(apicontainerstatus.ContainerCreated)
+				containerEventsWG.Done()
+			}()
+		}).Return(dockerapi.DockerContainerMetadata{DockerID: containerID + ":" + sleepContainer.Name})
+	// Next, the sleep container is started
+	client.EXPECT().StartContainer(gomock.Any(), containerID+":"+sleepContainer.Name, defaultConfig.ContainerStartTimeout).Do(
+		func(ctx interface{}, id string, timeout time.Duration) {
+			containerEventsWG.Add(1)
+			go func() {
+				eventStream <- createDockerEvent(apicontainerstatus.ContainerRunning)
+				containerEventsWG.Done()
+			}()
+		}).Return(dockerapi.DockerContainerMetadata{DockerID: containerID + ":" + sleepContainer.Name})
+	client.EXPECT().CreateContainer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Do(
+		func(ctx interface{}, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, containerName string, z time.Duration) {
+			assert.True(t, strings.Contains(containerName, depContainer.Name))
+			containerEventsWG.Add(1)
+			go func() {
+				eventStream <- createDockerEvent(apicontainerstatus.ContainerCreated)
+				containerEventsWG.Done()
+			}()
+		}).Return(dockerapi.DockerContainerMetadata{DockerID: containerID1 + ":" + depContainer.Name})
+	// Next, the dependency container is started
+	client.EXPECT().StartContainer(gomock.Any(), containerID1+":"+depContainer.Name, defaultConfig.ContainerStartTimeout).Do(
+		func(ctx interface{}, id string, timeout time.Duration) {
+			containerEventsWG.Add(1)
+			go func() {
+				eventStream <- createDockerEvent(apicontainerstatus.ContainerRunning)
+				containerEventsWG.Done()
+			}()
+		}).Return(dockerapi.DockerContainerMetadata{DockerID: containerID + ":" + sleepContainer.Name})
+
+	addTaskToEngine(t, ctx, taskEngine, sleepTask, mockTime, &containerEventsWG)
+
+	cleanup := make(chan time.Time, 1)
+	mockTime.EXPECT().After(gomock.Any()).Return(cleanup).AnyTimes()
+}
+
+
