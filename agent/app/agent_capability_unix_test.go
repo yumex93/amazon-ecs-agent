@@ -1,6 +1,6 @@
 // +build linux,unit
 
-// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -16,9 +16,11 @@
 package app
 
 import (
-	"testing"
-
 	"context"
+	"errors"
+	"io/ioutil"
+	"path/filepath"
+	"testing"
 
 	app_mocks "github.com/aws/amazon-ecs-agent/agent/app/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/config"
@@ -29,6 +31,7 @@ import (
 	mock_ecscni "github.com/aws/amazon-ecs-agent/agent/ecscni/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/gpu"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
+	mock_ioutilwrapper "github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper/mocks"
 	mock_mobypkgwrapper "github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	aws_credentials "github.com/aws/aws-sdk-go/aws/credentials"
@@ -44,6 +47,7 @@ func TestVolumeDriverCapabilitiesUnix(t *testing.T) {
 	cniClient := mock_ecscni.NewMockCNIClient(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		AvailableLoggingDrivers: []dockerclient.LoggingDriver{
 			dockerclient.JSONFileDriver,
@@ -75,6 +79,7 @@ func TestVolumeDriverCapabilitiesUnix(t *testing.T) {
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).Return(
 			[]string{"coolvolumedriver", "volumedriver:latest"}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -130,6 +135,7 @@ func TestVolumeDriverCapabilitiesUnix(t *testing.T) {
 		cniClient:          cniClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -147,6 +153,7 @@ func TestNvidiaDriverCapabilitiesUnix(t *testing.T) {
 	client := mock_dockerapi.NewMockDockerClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 		GPUSupportEnabled:  true,
@@ -162,6 +169,7 @@ func TestNvidiaDriverCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -208,6 +216,7 @@ func TestNvidiaDriverCapabilitiesUnix(t *testing.T) {
 				DriverVersion: "396.44",
 			},
 		},
+		ioutil: mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -225,6 +234,7 @@ func TestEmptyNvidiaDriverCapabilitiesUnix(t *testing.T) {
 	client := mock_dockerapi.NewMockDockerClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 		GPUSupportEnabled:  true,
@@ -240,6 +250,7 @@ func TestEmptyNvidiaDriverCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -283,6 +294,7 @@ func TestEmptyNvidiaDriverCapabilitiesUnix(t *testing.T) {
 				DriverVersion: "",
 			},
 		},
+		ioutil: mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -301,6 +313,7 @@ func TestENITrunkingCapabilitiesUnix(t *testing.T) {
 	cniClient := mock_ecscni.NewMockCNIClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 		TaskENIEnabled:     true,
@@ -319,6 +332,7 @@ func TestENITrunkingCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -369,6 +383,7 @@ func TestENITrunkingCapabilitiesUnix(t *testing.T) {
 		cniClient:          cniClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -387,6 +402,7 @@ func TestNoENITrunkingCapabilitiesUnix(t *testing.T) {
 	cniClient := mock_ecscni.NewMockCNIClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 		TaskENIEnabled:     true,
@@ -404,6 +420,7 @@ func TestNoENITrunkingCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -447,6 +464,7 @@ func TestNoENITrunkingCapabilitiesUnix(t *testing.T) {
 		cniClient:          cniClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -464,6 +482,7 @@ func TestPIDAndIPCNamespaceSharingCapabilitiesUnix(t *testing.T) {
 	client := mock_dockerapi.NewMockDockerClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 	}
@@ -478,6 +497,7 @@ func TestPIDAndIPCNamespaceSharingCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -529,6 +549,7 @@ func TestPIDAndIPCNamespaceSharingCapabilitiesUnix(t *testing.T) {
 		dockerClient:       client,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -546,6 +567,7 @@ func TestAppMeshCapabilitiesUnix(t *testing.T) {
 	client := mock_dockerapi.NewMockDockerClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 	}
@@ -560,6 +582,7 @@ func TestAppMeshCapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(nil, errors.New("ei error")),
 	)
 
 	expectedCapabilityNames := []string{
@@ -614,6 +637,7 @@ func TestAppMeshCapabilitiesUnix(t *testing.T) {
 		dockerClient:       client,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -624,16 +648,19 @@ func TestAppMeshCapabilitiesUnix(t *testing.T) {
 	}
 }
 
-func TestTaskEIACapabilitiesUnix(t *testing.T) {
+func TestTaskEIACapabilitiesNoOptimizedCPU(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	client := mock_dockerapi.NewMockDockerClient(ctrl)
 	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
 	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
 	conf := &config.Config{
 		PrivilegedDisabled: true,
 	}
+
+	fileBytes, _ := ioutil.ReadFile(filepath.Join(".", "testdata", "test_cpu_info_fail"))
 
 	gomock.InOrder(
 		client.EXPECT().SupportedVersions().Return([]dockerclient.DockerVersion{
@@ -645,54 +672,9 @@ func TestTaskEIACapabilitiesUnix(t *testing.T) {
 		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
 		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
 			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(fileBytes, nil),
 	)
 
-	expectedCapabilityNames := []string{
-		"com.amazonaws.ecs.capability.docker-remote-api.1.17",
-	}
-
-	var expectedCapabilities []*ecs.Attribute
-	for _, name := range expectedCapabilityNames {
-		expectedCapabilities = append(expectedCapabilities,
-			&ecs.Attribute{Name: aws.String(name)})
-	}
-	expectedCapabilities = append(expectedCapabilities,
-		[]*ecs.Attribute{
-			// linux specific capabilities
-			{
-				Name: aws.String("ecs.capability.docker-plugin.local"),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilityPrivateRegistryAuthASM),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilitySecretEnvSSM),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilitySecretLogDriverSSM),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilityECREndpoint),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilitySecretEnvASM),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilitySecretLogDriverASM),
-			},
-			{
-				Name: aws.String(attributePrefix + capabilityContainerOrdering),
-			},
-			{
-				Name: aws.String(attributePrefix + capabiltyPIDAndIPCNamespaceSharing),
-			},
-			{
-				Name: aws.String(attributePrefix + appMeshAttributeSuffix),
-			},
-			{
-				Name: aws.String(attributePrefix + taskEIAAttributeSuffix),
-			},
-		}...)
 	ctx, cancel := context.WithCancel(context.TODO())
 	// Cancel the context to cancel async routines
 	defer cancel()
@@ -702,12 +684,54 @@ func TestTaskEIACapabilitiesUnix(t *testing.T) {
 		dockerClient:       client,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
+	assert.Contains(t, capabilities, &ecs.Attribute{Name: aws.String(attributePrefix + taskEIAAttributeSuffix)})
+	assert.NotContains(t, capabilities, &ecs.Attribute{Name: aws.String(attributePrefix + taskEIAWithOptimizedCPU)})
+}
 
-	for i, expected := range expectedCapabilities {
-		assert.Equal(t, aws.StringValue(expected.Name), aws.StringValue(capabilities[i].Name))
-		assert.Equal(t, aws.StringValue(expected.Value), aws.StringValue(capabilities[i].Value))
+func TestTaskEIACapabilitiesWithOptimizedCPU(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := mock_dockerapi.NewMockDockerClient(ctrl)
+	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
+	mockCredentialsProvider := app_mocks.NewMockProvider(ctrl)
+	mockIoutil := mock_ioutilwrapper.NewMockIOUtil(ctrl)
+
+	conf := &config.Config{
+		PrivilegedDisabled: true,
 	}
+
+	fileBytes, _ := ioutil.ReadFile(filepath.Join(".", "testdata", "test_cpu_info"))
+
+	gomock.InOrder(
+		client.EXPECT().SupportedVersions().Return([]dockerclient.DockerVersion{
+			dockerclient.Version_1_17,
+		}),
+		client.EXPECT().KnownVersions().Return([]dockerclient.DockerVersion{
+			dockerclient.Version_1_17,
+		}),
+		mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil),
+		client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
+			gomock.Any()).AnyTimes().Return([]string{}, nil),
+		mockIoutil.EXPECT().ReadFile(CpuInfoPath).Return(fileBytes, nil),
+	)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	// Cancel the context to cancel async routines
+	defer cancel()
+	agent := &ecsAgent{
+		ctx:                ctx,
+		cfg:                conf,
+		dockerClient:       client,
+		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
+		mobyPlugins:        mockMobyPlugins,
+		ioutil:             mockIoutil,
+	}
+	capabilities, err := agent.capabilities()
+	assert.NoError(t, err)
+	assert.Contains(t, capabilities, &ecs.Attribute{Name: aws.String(attributePrefix + taskEIAWithOptimizedCPU)})
 }

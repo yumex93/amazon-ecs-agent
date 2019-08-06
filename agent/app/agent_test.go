@@ -42,6 +42,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/sighandlers/exitcodes"
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
 	mock_statemanager "github.com/aws/amazon-ecs-agent/agent/statemanager/mocks"
+	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	mock_mobypkgwrapper "github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -256,6 +257,7 @@ func TestDoStartRegisterContainerInstanceErrorTerminal(t *testing.T) {
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		dockerClient:       dockerClient,
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	exitCode := agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -292,6 +294,7 @@ func TestDoStartRegisterContainerInstanceErrorNonTerminal(t *testing.T) {
 		dockerClient:       dockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	exitCode := agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -364,6 +367,7 @@ func TestDoStartRegisterAvailabilityZone(t *testing.T) {
 		metadataManager:    containermetadata,
 		terminationHandler: func(saver statemanager.Saver, taskEngine engine.TaskEngine) {},
 		ec2MetadataClient:  ec2MetadataClient,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	go agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -408,6 +412,7 @@ func TestNewTaskEngineRestoreFromCheckpointNoEC2InstanceIDToLoadHappyPath(t *tes
 		stateManagerFactory:   stateManagerFactory,
 		ec2MetadataClient:     ec2MetadataClient,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, instanceID, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -465,6 +470,7 @@ func TestNewTaskEngineRestoreFromCheckpointPreviousEC2InstanceIDLoadedHappyPath(
 		stateManagerFactory:   stateManagerFactory,
 		ec2MetadataClient:     ec2MetadataClient,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, instanceID, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -519,6 +525,7 @@ func TestNewTaskEngineRestoreFromCheckpointClusterIDMismatch(t *testing.T) {
 		stateManagerFactory:   stateManagerFactory,
 		ec2MetadataClient:     ec2MetadataClient,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, _, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -553,6 +560,7 @@ func TestNewTaskEngineRestoreFromCheckpointNewStateManagerError(t *testing.T) {
 		dockerClient:          dockerClient,
 		stateManagerFactory:   stateManagerFactory,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, _, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -589,6 +597,7 @@ func TestNewTaskEngineRestoreFromCheckpointStateLoadError(t *testing.T) {
 		dockerClient:          dockerClient,
 		stateManagerFactory:   stateManagerFactory,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, _, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -628,6 +637,7 @@ func TestNewTaskEngineRestoreFromCheckpoint(t *testing.T) {
 		stateManagerFactory:   stateManagerFactory,
 		ec2MetadataClient:     ec2MetadataClient,
 		saveableOptionFactory: saveableOptionFactory,
+		ioutil:                ioutilwrapper.NewIOUtil(),
 	}
 
 	_, instanceID, err := agent.newTaskEngine(eventstream.NewEventStream("events", ctx),
@@ -699,6 +709,7 @@ func TestReregisterContainerInstanceHappyPath(t *testing.T) {
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	agent.containerInstanceARN = containerInstanceARN
 	agent.availabilityZone = availabilityZone
@@ -739,6 +750,7 @@ func TestReregisterContainerInstanceInstanceTypeChanged(t *testing.T) {
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	agent.containerInstanceARN = containerInstanceARN
 	agent.availabilityZone = availabilityZone
@@ -780,6 +792,7 @@ func TestReregisterContainerInstanceAttributeError(t *testing.T) {
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	agent.containerInstanceARN = containerInstanceARN
 	agent.availabilityZone = availabilityZone
@@ -821,6 +834,7 @@ func TestReregisterContainerInstanceNonTerminalError(t *testing.T) {
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	agent.containerInstanceARN = containerInstanceARN
 	agent.availabilityZone = availabilityZone
@@ -862,6 +876,7 @@ func TestRegisterContainerInstanceWhenContainerInstanceARNIsNotSetHappyPath(t *t
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	err := agent.registerContainerInstance(stateManager, client, nil)
 	assert.NoError(t, err)
@@ -901,6 +916,7 @@ func TestRegisterContainerInstanceWhenContainerInstanceARNIsNotSetCanRetryError(
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	err := agent.registerContainerInstance(stateManager, client, nil)
@@ -940,6 +956,7 @@ func TestRegisterContainerInstanceWhenContainerInstanceARNIsNotSetCannotRetryErr
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	err := agent.registerContainerInstance(stateManager, client, nil)
@@ -979,6 +996,7 @@ func TestRegisterContainerInstanceWhenContainerInstanceARNIsNotSetAttributeError
 		dockerClient:       mockDockerClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	err := agent.registerContainerInstance(stateManager, client, nil)
@@ -1016,6 +1034,7 @@ func TestRegisterContainerInstanceInvalidParameterTerminalError(t *testing.T) {
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		dockerClient:       dockerClient,
 		mobyPlugins:        mockMobyPlugins,
+		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	exitCode := agent.doStart(eventstream.NewEventStream("events", ctx),

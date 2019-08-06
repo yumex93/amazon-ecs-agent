@@ -24,6 +24,7 @@ import (
 type IOUtil interface {
 	TempFile(string, string) (oswrapper.File, error)
 	WriteFile(string, []byte, os.FileMode) error
+	ReadFile(string) ([]byte, error)
 }
 
 type ioUtil struct {
@@ -40,4 +41,8 @@ func (*ioUtil) TempFile(dir string, prefix string) (oswrapper.File, error) {
 
 func (*ioUtil) WriteFile(filename string, data []byte, perm os.FileMode) error {
 	return ioutil.WriteFile(filename, data, perm)
+}
+
+func (*ioUtil) ReadFile(filename string) ([]byte, error) {
+	return ioutil.ReadFile(filename)
 }
