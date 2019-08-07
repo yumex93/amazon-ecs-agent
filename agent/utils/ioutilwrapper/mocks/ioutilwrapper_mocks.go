@@ -49,19 +49,6 @@ func (m *MockIOUtil) EXPECT() *MockIOUtilMockRecorder {
 	return m.recorder
 }
 
-// ReadFile mocks base method
-func (m *MockIOUtil) ReadFile(arg0 string) ([]byte, error) {
-	ret := m.ctrl.Call(m, "ReadFile", arg0)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ReadFile indicates an expected call of ReadFile
-func (mr *MockIOUtilMockRecorder) ReadFile(arg0 interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockIOUtil)(nil).ReadFile), arg0)
-}
-
 // TempFile mocks base method
 func (m *MockIOUtil) TempFile(arg0, arg1 string) (oswrapper.File, error) {
 	ret := m.ctrl.Call(m, "TempFile", arg0, arg1)

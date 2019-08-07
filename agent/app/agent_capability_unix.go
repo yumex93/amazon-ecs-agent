@@ -125,7 +125,7 @@ func (agent *ecsAgent) appendTaskEIACapabilities(capabilities []*ecs.Attribute) 
 	capabilities = appendNameOnlyAttribute(capabilities, attributePrefix+taskEIAAttributeSuffix)
 
 	eiaRequiredFlags := []string{AVX, AVX2, SSE41, SSE42}
-	cpuInfo, err := utils.ReadCPUInfo(CpuInfoPath, agent.ioutil)
+	cpuInfo, err := utils.ReadCPUInfo(CpuInfoPath)
 	if err != nil {
 		seelog.Warnf("Unable to read cpuinfo: %v", err)
 		return capabilities
@@ -140,7 +140,7 @@ func (agent *ecsAgent) appendTaskEIACapabilities(capabilities []*ecs.Attribute) 
 	}
 
 	if len(missingFlags) > 0 {
-		seelog.Infof("Missing cpu flags for eia support: %v", strings.Join(missingFlags, ","))
+		seelog.Infof("Missing cpu flags for EIA support: %v", strings.Join(missingFlags, ","))
 		return capabilities
 	}
 

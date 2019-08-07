@@ -16,9 +16,9 @@
 package utils
 
 import (
+	"bufio"
+	"os"
 	"strings"
-
-	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 )
 
 type CPUInfo struct {
@@ -29,14 +29,24 @@ type Processor struct {
 	Flags []string `json:"flags"`
 }
 
-func ReadCPUInfo(path string, ioutil ioutilwrapper.IOUtil) (*CPUInfo, error) {
-	b, err := ioutil.ReadFile(path)
+var (
+	OpenFile = os.Open
+)
+
+func ReadCPUInfo(path string) (*CPUInfo, error) {
+	file, err := OpenFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	content := string(b)
-	lines := strings.Split(content, "\n")
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var lines []string
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
 
 	var cpuinfo = CPUInfo{}
 	var processor = &Processor{}
@@ -51,6 +61,7 @@ func ReadCPUInfo(path string, ioutil ioutilwrapper.IOUtil) (*CPUInfo, error) {
 			processor = &Processor{}
 			continue
 		} else if i == len(lines)-1 {
+			cpuinfo.Processors = append(cpuinfo.Processors, *processor)
 			continue
 		}
 

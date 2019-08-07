@@ -19,14 +19,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReadCPUInfoWithFlags(t *testing.T) {
-	ioutil := ioutilwrapper.NewIOUtil()
 	path := filepath.Join(".", "testdata", "test_cpu_info")
-	cpuInfo, err := ReadCPUInfo(path, ioutil)
+	cpuInfo, err := ReadCPUInfo(path)
 	assert.Nil(t, err)
 	assert.Equal(t, 2, len(cpuInfo.Processors))
 	assert.Equal(t, 8, len(cpuInfo.Processors[0].Flags))
@@ -34,9 +32,8 @@ func TestReadCPUInfoWithFlags(t *testing.T) {
 }
 
 func TestReadCPUInfoWithFlagsARM(t *testing.T) {
-	ioutil := ioutilwrapper.NewIOUtil()
 	path := filepath.Join(".", "testdata", "test_cpu_info_arm")
-	cpuInfo, err := ReadCPUInfo(path, ioutil)
+	cpuInfo, err := ReadCPUInfo(path)
 	assert.Nil(t, err)
 	assert.Equal(t, 2, len(cpuInfo.Processors))
 	assert.Equal(t, 8, len(cpuInfo.Processors[0].Flags))
@@ -44,18 +41,16 @@ func TestReadCPUInfoWithFlagsARM(t *testing.T) {
 }
 
 func TestReadCPUInfoNoFlags(t *testing.T) {
-	ioutil := ioutilwrapper.NewIOUtil()
 	path := filepath.Join(".", "testdata", "test_cpu_info_no_flag")
-	cpuInfo, err := ReadCPUInfo(path, ioutil)
+	cpuInfo, err := ReadCPUInfo(path)
 	assert.Nil(t, err)
 	proc := cpuInfo.Processors[0]
 	assert.Nil(t, proc.Flags)
 }
 
 func TestReadCPUInfoError(t *testing.T) {
-	ioutil := ioutilwrapper.NewIOUtil()
 	path := filepath.Join(".", "testdata", "test_cpu_info_error")
-	cpu, err := ReadCPUInfo(path, ioutil)
+	cpu, err := ReadCPUInfo(path)
 	assert.Nil(t, cpu)
 	assert.Error(t, err)
 }

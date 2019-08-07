@@ -1,6 +1,6 @@
 // +build unit
 
-// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -30,7 +30,6 @@ import (
 	mock_dockerapi "github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/ecscni"
 	mock_ecscni "github.com/aws/amazon-ecs-agent/agent/ecscni/mocks"
-	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	mock_mobypkgwrapper "github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	aws_credentials "github.com/aws/aws-sdk-go/aws/credentials"
@@ -142,7 +141,6 @@ func TestCapabilities(t *testing.T) {
 		cniClient:          cniClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
-		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -176,7 +174,6 @@ func TestCapabilitiesECR(t *testing.T) {
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -219,7 +216,6 @@ func TestCapabilitiesTaskIAMRoleForSupportedDockerVersion(t *testing.T) {
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -259,7 +255,6 @@ func TestCapabilitiesTaskIAMRoleForUnSupportedDockerVersion(t *testing.T) {
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -300,7 +295,6 @@ func TestCapabilitiesTaskIAMRoleNetworkHostForSupportedDockerVersion(t *testing.
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -341,7 +335,6 @@ func TestCapabilitiesTaskIAMRoleNetworkHostForUnSupportedDockerVersion(t *testin
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -410,7 +403,6 @@ func TestAWSVPCBlockInstanceMetadataWhenTaskENIIsDisabled(t *testing.T) {
 		cniClient:          cniClient,
 		credentialProvider: aws_credentials.NewCredentials(mockCredentialsProvider),
 		mobyPlugins:        mockMobyPlugins,
-		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 	capabilities, err := agent.capabilities()
 	assert.NoError(t, err)
@@ -457,7 +449,6 @@ func TestCapabilitiesExecutionRoleAWSLogs(t *testing.T) {
 		dockerClient: client,
 		cniClient:    cniClient,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -495,7 +486,6 @@ func TestCapabilitiesTaskResourceLimit(t *testing.T) {
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	expectedCapability := attributePrefix + capabilityTaskCPUMemLimit
@@ -536,7 +526,6 @@ func TestCapabilitesTaskResourceLimitDisabledByMissingDockerVersion(t *testing.T
 		cfg:          conf,
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	unexpectedCapability := attributePrefix + capabilityTaskCPUMemLimit
@@ -572,7 +561,6 @@ func TestCapabilitesTaskResourceLimitErrorCase(t *testing.T) {
 		ctx:          ctx,
 		cfg:          conf,
 		dockerClient: client,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -603,7 +591,6 @@ func TestCapabilitiesContainerHealth(t *testing.T) {
 		cfg:          &config.Config{},
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -641,7 +628,6 @@ func TestCapabilitiesContainerHealthDisabled(t *testing.T) {
 		cfg:          &config.Config{DisableDockerHealthCheck: true},
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -677,7 +663,6 @@ func TestCapabilitesListPluginsErrorCase(t *testing.T) {
 		cfg:          &config.Config{},
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()
@@ -712,7 +697,6 @@ func TestCapabilitesScanPluginsErrorCase(t *testing.T) {
 		cfg:          &config.Config{},
 		dockerClient: client,
 		mobyPlugins:  mockMobyPlugins,
-		ioutil:       ioutilwrapper.NewIOUtil(),
 	}
 
 	capabilities, err := agent.capabilities()

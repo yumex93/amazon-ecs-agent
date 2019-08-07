@@ -48,7 +48,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	tcshandler "github.com/aws/amazon-ecs-agent/agent/tcs/handler"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
-	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	"github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper"
 	"github.com/aws/amazon-ecs-agent/agent/version"
 	"github.com/aws/aws-sdk-go/aws"
@@ -104,7 +103,6 @@ type ecsAgent struct {
 	pauseLoader           pause.Loader
 	cniClient             ecscni.CNIClient
 	os                    oswrapper.OS
-	ioutil                ioutilwrapper.IOUtil
 	vpc                   string
 	subnet                string
 	mac                   string
@@ -176,7 +174,6 @@ func newAgent(
 			MinSupportedCNIVersion: config.DefaultMinSupportedCNIVersion,
 		}),
 		os:                 oswrapper.New(),
-		ioutil:             ioutilwrapper.NewIOUtil(),
 		metadataManager:    metadataManager,
 		terminationHandler: sighandlers.StartDefaultTerminationHandler,
 		mobyPlugins:        mobypkgwrapper.NewPlugins(),

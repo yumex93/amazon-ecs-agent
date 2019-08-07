@@ -44,7 +44,6 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource/cgroup/control/mock_control"
-	"github.com/aws/amazon-ecs-agent/agent/utils/ioutilwrapper"
 	mock_mobypkgwrapper "github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -114,7 +113,6 @@ func TestDoStartHappyPath(t *testing.T) {
 		dockerClient:       dockerClient,
 		terminationHandler: func(saver statemanager.Saver, taskEngine engine.TaskEngine) {},
 		mobyPlugins:        mockMobyPlugins,
-		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	go agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -224,7 +222,6 @@ func TestDoStartTaskENIHappyPath(t *testing.T) {
 		ec2MetadataClient:  mockMetadata,
 		terminationHandler: func(saver statemanager.Saver, taskEngine engine.TaskEngine) {},
 		mobyPlugins:        mockMobyPlugins,
-		ioutil:             ioutilwrapper.NewIOUtil(),
 	}
 
 	go agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -559,7 +556,6 @@ func TestDoStartCgroupInitHappyPath(t *testing.T) {
 		resourceFields: &taskresource.ResourceFields{
 			Control: mockControl,
 		},
-		ioutil: ioutilwrapper.NewIOUtil(),
 	}
 
 	go agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -604,7 +600,6 @@ func TestDoStartCgroupInitErrorPath(t *testing.T) {
 		resourceFields: &taskresource.ResourceFields{
 			Control: mockControl,
 		},
-		ioutil: ioutilwrapper.NewIOUtil(),
 	}
 
 	status := agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -688,7 +683,6 @@ func TestDoStartGPUManagerHappyPath(t *testing.T) {
 		resourceFields: &taskresource.ResourceFields{
 			NvidiaGPUManager: mockGPUManager,
 		},
-		ioutil: ioutilwrapper.NewIOUtil(),
 	}
 
 	go agent.doStart(eventstream.NewEventStream("events", ctx),
@@ -731,7 +725,6 @@ func TestDoStartGPUManagerInitError(t *testing.T) {
 		resourceFields: &taskresource.ResourceFields{
 			NvidiaGPUManager: mockGPUManager,
 		},
-		ioutil: ioutilwrapper.NewIOUtil(),
 	}
 
 	status := agent.doStart(eventstream.NewEventStream("events", ctx),
