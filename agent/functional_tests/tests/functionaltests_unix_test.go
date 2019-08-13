@@ -56,6 +56,9 @@ const (
 	cleanupTaskDefinition           = "nginx"
 	networkModeTaskDefinition       = "network-mode"
 	fluentdLogPath                  = "/tmp/ftslog"
+	eiUnsupportedAZError            = "not available in"
+	eiLimitExceededError            = "limit has been exceeded"
+	noAttributeError                = "ATTRIBUTE"
 )
 
 var trunkingInstancePrefixes = []string{"c5.", "m5."}
@@ -1570,9 +1573,7 @@ func TestRunGPUTask(t *testing.T) {
 
 // TestElasticInferenceValidator tests the workflow of an elastic inference task
 func TestElasticInferenceValidator(t *testing.T) {
-	t.Skip("Skipping the test until EI is fully supported in all AZs of some regions")
-
-	supportedRegions := []string{"us-west-2", "us-east-1", "ap-northeast-2"}
+	supportedRegions := []string{"us-west-2", "us-east-1", "us-east-2", "ap-northeast-1", "ap-northeast-2", "eu-west-1"}
 	RequireRegions(t, supportedRegions, *ECS.Config.Region)
 
 	// Best effort to create a log group. It should be safe to even not do this
@@ -1603,6 +1604,16 @@ func TestElasticInferenceValidator(t *testing.T) {
 	var err error
 
 	task, err = agent.StartAWSVPCTask("task-elastic-inference", tdOverrides)
+
+	// Need to skip assertion due to following reasons:
+	// 1. Each account only has a limited amount of EIA devices
+	// 2. EIA is not supported among all azs
+	// 3. The EIA capability is decided by whether cpu has required feature support
+	if err != nil {
+		if strings.Contains(err.Error(), eiLimitExceededError) || strings.Contains(err.Error(), noAttributeError) || strings.Contains(err.Error(), eiUnsupportedAZError) {
+			return
+		}
+	}
 	require.NoError(t, err, "Error starting elastic inference task")
 
 	err = task.WaitStopped(waitTaskStateChangeDuration)
